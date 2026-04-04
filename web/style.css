@@ -16,6 +16,9 @@
   --button-text: #f7f4eb;
   --button-fn: linear-gradient(180deg, #5f6d6b 0%, #34403e 100%);
   --button-accent: linear-gradient(180deg, #d1b95f 0%, #a48725 100%);
+  --button-nav: linear-gradient(180deg, #4d73ba 0%, #244785 100%);
+  --button-light: linear-gradient(180deg, #d8d5d0 0%, #9f9992 100%);
+  --button-power: linear-gradient(180deg, #676b67 0%, #373a38 100%);
   --button-meta: linear-gradient(180deg, #e4ded2 0%, #bbb19f 100%);
   --border: rgba(28, 32, 24, 0.14);
   --shadow: 0 24px 60px rgba(50, 47, 34, 0.18);
@@ -41,7 +44,7 @@ input {
 }
 
 .app-shell {
-  width: min(1680px, calc(100vw - 28px));
+  width: min(1120px, calc(100vw - 28px));
   margin: 0 auto;
   padding: 18px 0 28px;
 }
@@ -203,41 +206,55 @@ button:disabled {
 }
 
 .emulator-layout {
-  grid-template-columns: minmax(0, 1fr) 750px;
+  grid-template-columns: 352px minmax(0, 1fr);
   align-items: start;
-  gap: 18px;
+  gap: 22px;
 }
 
 .device {
   position: relative;
+  justify-self: center;
+  width: min(100%, 352px);
 }
 
 .bezel {
-  padding: 22px;
-  border-radius: 28px;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  width: 100%;
+  min-height: 0;
+  aspect-ratio: 0.512;
+  padding: 16px 16px 18px;
+  border-radius: 10px;
   background:
-    linear-gradient(180deg, var(--device-top) 0%, #707568 20%, var(--device-bottom) 100%);
+    radial-gradient(circle at 28% 18%, rgba(255, 255, 255, 0.16), transparent 24%),
+    linear-gradient(180deg, #6f746b 0%, #686d64 14%, #575b54 60%, #454842 100%);
   box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.2),
-    inset 0 -16px 36px rgba(0, 0, 0, 0.25),
-    0 26px 60px rgba(54, 50, 40, 0.25);
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    inset 0 -18px 38px rgba(0, 0, 0, 0.34),
+    0 22px 44px rgba(40, 37, 31, 0.28);
 }
 
 .branding {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 12px;
+  margin: 0 6px 6px;
   color: rgba(255, 252, 246, 0.88);
-  font-size: 0.76rem;
-  letter-spacing: 0.08em;
+  font-size: 1.1rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
 .screen-stack {
-  padding: 14px;
-  border-radius: 18px;
-  background: linear-gradient(180deg, #bdc7ae 0%, var(--screen-shell) 100%);
-  box-shadow: inset 0 2px 12px rgba(36, 49, 31, 0.16);
+  width: 96%;
+  margin: 0 auto;
+  padding: 12px 35px;
+  border-radius: 3px;
+  background:
+    linear-gradient(180deg, #dbd5c6 0%, #cfc7b7 22%, #bbae99 100%);
+  box-shadow:
+    inset 0 2px 14px rgba(255, 255, 255, 0.22),
+    inset 0 -9px 18px rgba(76, 64, 45, 0.18);
 }
 
 #status-pill {
@@ -258,57 +275,129 @@ button:disabled {
   width: 100%;
   max-width: 100%;
   aspect-ratio: 4 / 3;
-  border: 8px solid #33462f;
+  padding: 16px 20px;
   border-radius: 0;
-  background: var(--screen-light);
+  background: #efe6ce;
   image-rendering: pixelated;
+  filter: brightness(0.9);
   box-shadow:
+    inset 3px -2px 7px black,
+    0 3px 8px rgba(31, 28, 22, 0.22),
     inset 0 0 0 1px rgba(255, 255, 255, 0.24),
-    inset 0 0 30px rgba(29, 40, 25, 0.25);
+    inset 0 0 28px rgba(29, 40, 25, 0.18);
 }
 
 .keypad {
-  margin-top: 16px;
+  margin-top: 10px;
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 9px;
+  grid-template-columns: repeat(15, minmax(0, 1fr));
+  grid-auto-rows: minmax(38px, auto);
+  align-content: start;
+  gap: 2px 4px;
+}
+
+.key-slot {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-height: 38px;
+  padding-top: 8px;
 }
 
 .key {
   appearance: none;
   border: 0;
-  border-radius: 15px;
-  min-height: 48px;
-  padding: 8px 6px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 95%;
+  border-radius: 8px;
+  padding: 5px 4px 4px;
   background: var(--button);
   color: var(--button-text);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  font-size: 0.83rem;
+  letter-spacing: 0.03em;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1;
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.14),
-    0 10px 18px rgba(20, 21, 19, 0.28);
+    0 6px 10px rgba(20, 21, 19, 0.24);
   cursor: pointer;
   user-select: none;
   touch-action: manipulation;
 }
 
+.key-label {
+  display: block;
+  white-space: nowrap;
+}
+
+.key-secondary {
+  position: absolute;
+  top: 0;
+  left: 3px;
+  max-width: calc(100% - 18px);
+  color: #d8a23a;
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.key-alpha {
+  position: absolute;
+  top: -1px;
+  right: 4px;
+  max-width: 36%;
+  color: rgba(245, 242, 235, 0.92);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .key.small {
-  min-height: 44px;
-  font-size: 0.74rem;
+  font-size: 0.85rem;
 }
 
 .key.function {
   background: var(--button-fn);
+  min-height: 28px;
+  font-size: 0.65rem;
+  vertical-align: top;
+  padding: 0 0 7px 0;
+}
+
+.key.function .key-alpha {
+  font-size: 0.3rem;
 }
 
 .key.accent {
   background: var(--button-accent);
-  color: #302608;
 }
 
-.key.wide {
-  grid-column: span 2;
+.key.nav {
+  background: var(--button-nav);
+}
+
+.key.light {
+  background: var(--button-light);
+  color: #1f241d;
+}
+
+.key.power {
+  background: var(--button-power);
+}
+
+.key.nav .key-label,
+.key.power .key-label {
+  font-size: 0.84rem;
 }
 
 .key.active {
@@ -477,6 +566,10 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .device {
+    width: min(100%, 352px);
+  }
+
   .info-panel {
     order: -1;
     grid-template-columns: 1fr;
@@ -491,15 +584,18 @@ button:disabled {
 
 @media (max-width: 640px) {
   .app-shell {
-    width: min(100vw - 16px, 1680px);
+    width: min(1120px, calc(100vw - 16px));
     padding-top: 12px;
   }
 
   .hero-copy,
   .controls-card,
-  .info-panel,
-  .bezel {
+  .info-panel {
     border-radius: 24px;
+  }
+
+  .bezel {
+    border-radius: 10px;
   }
 
   .hero-copy,
@@ -518,12 +614,34 @@ button:disabled {
   }
 
   .keypad {
-    gap: 10px;
+    grid-auto-rows: minmax(36px, auto);
+    gap: 2px 4px;
+  }
+
+  .key-slot {
+    min-height: 36px;
+    padding-top: 7px;
   }
 
   .key {
-    min-height: 52px;
-    font-size: 0.82rem;
+    min-height: 30px;
+    padding: 7px 4px 5px;
+    font-size: 0.58rem;
+  }
+
+  .key.function {
+    min-height: 27px;
+    font-size: 0.48rem;
+  }
+
+  .key-secondary,
+  .key-alpha {
+    font-size: 0.5rem;
+  }
+
+  .key.nav .key-label,
+  .key.power .key-label {
+    font-size: 0.76rem;
   }
 
   .register-grid {

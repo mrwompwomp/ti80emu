@@ -4,65 +4,65 @@ const SCALE = 6;
 const ROM_STORAGE_KEY = "ti80-rom";
 
 const KEY_LAYOUT = [
-  { label: "Y=", row: 3, col: 6, kind: "function" },
-  { label: "Window", row: 4, col: 6, kind: "function" },
-  { label: "Zoom", row: 5, col: 6, kind: "function" },
-  { label: "Trace", row: 6, col: 6, kind: "function" },
-  { label: "Graph", row: 7, col: 6, kind: "function" },
+  { label: "Y=", secondary: "STATPLOT", row: 3, col: 6, kind: "function", gridRow: 1, gridColumn: "1 / span 3" },
+  { label: "WINDOW", secondary: "TblSet", row: 4, col: 6, kind: "function", gridRow: 1, gridColumn: "4 / span 3" },
+  { label: "ZOOM", row: 5, col: 6, kind: "function", gridRow: 1, gridColumn: "7 / span 3" },
+  { label: "TRACE", row: 6, col: 6, kind: "function", gridRow: 1, gridColumn: "10 / span 3" },
+  { label: "GRAPH", secondary: "TABLE", row: 7, col: 6, kind: "function", gridRow: 1, gridColumn: "13 / span 3" },
 
-  { label: "2nd", row: 2, col: 6, kind: "accent" },
-  { label: "Mode", row: 1, col: 6, kind: "small" },
-  { label: "Del", row: 0, col: 6, kind: "small" },
-  { label: "Alpha", row: 0, col: 5, kind: "small" },
-  { label: "Stat", row: 0, col: 3, kind: "small" },
+  { label: "2nd", row: 2, col: 6, kind: "accent", gridRow: 2, gridColumn: "1 / span 3" },
+  { label: "MODE", secondary: "QUIT", row: 1, col: 6, kind: "small", gridRow: 2, gridColumn: "4 / span 3" },
+  { label: "DEL", secondary: "INS", row: 0, col: 6, kind: "small", gridRow: 2, gridColumn: "7 / span 3" },
+  { label: "▲", ariaLabel: "Up", row: 4, col: 0, kind: "nav", gridRow: 2, gridColumn: "12 / span 2" },
 
-  { label: "Math", row: 1, col: 5, kind: "small" },
-  { label: "Frac", row: 1, col: 4, kind: "small" },
-  { label: "Prgm", row: 1, col: 3, kind: "small" },
-  { label: "Vars", row: 1, col: 2, kind: "small" },
-  { label: "Clear", row: 1, col: 1, kind: "small" },
+  { label: "ALPHA", secondary: "A-LOCK", row: 0, col: 5, kind: "small", gridRow: 3, gridColumn: "1 / span 3" },
+  { label: "X,T", row: 0, col: 4, kind: "small", gridRow: 3, gridColumn: "4 / span 3" },
+  { label: "STAT", secondary: "LIST", row: 0, col: 3, kind: "small", gridRow: 3, gridColumn: "7 / span 3" },
+  { label: "◀", ariaLabel: "Left", row: 6, col: 0, kind: "nav", gridRow: 3, gridColumn: "10 / span 2" },
+  { label: "▼", ariaLabel: "Down", row: 7, col: 0, kind: "nav", gridRow: 3, gridColumn: "12 / span 2" },
+  { label: "▶", ariaLabel: "Right", row: 5, col: 0, kind: "nav", gridRow: 3, gridColumn: "14 / span 2" },
 
-  { label: "x^-1", row: 2, col: 5 },
-  { label: "Sin", row: 2, col: 4 },
-  { label: "Cos", row: 2, col: 3 },
-  { label: "Tan", row: 2, col: 2 },
-  { label: "^", row: 2, col: 1 },
+  { label: "MATH", secondary: "TEST", alpha: "A", row: 1, col: 5, kind: "small", gridRow: 4, gridColumn: "1 / span 3" },
+  { label: "FRAC", secondary: "ANGLE", alpha: "B", row: 1, col: 4, kind: "small", gridRow: 4, gridColumn: "4 / span 3" },
+  { label: "PRGM", secondary: "DRAW", alpha: "C", row: 1, col: 3, kind: "small", gridRow: 4, gridColumn: "7 / span 3" },
+  { label: "VARS", secondary: "Y-VARS", row: 1, col: 2, kind: "small", gridRow: 4, gridColumn: "10 / span 3" },
+  { label: "CLEAR", row: 1, col: 1, kind: "small", gridRow: 4, gridColumn: "13 / span 3" },
 
-  { label: "x^2", row: 3, col: 5 },
-  { label: ",", row: 3, col: 4 },
-  { label: "(", row: 3, col: 3 },
-  { label: ")", row: 3, col: 2 },
-  { label: "/", row: 3, col: 1 },
+  { label: "x⁻¹", secondary: "ABS", alpha: "D", row: 2, col: 5, gridRow: 5, gridColumn: "1 / span 3" },
+  { label: "SIN", secondary: "SIN⁻¹", alpha: "E", row: 2, col: 4, gridRow: 5, gridColumn: "4 / span 3" },
+  { label: "COS", secondary: "COS⁻¹", alpha: "F", row: 2, col: 3, gridRow: 5, gridColumn: "7 / span 3" },
+  { label: "TAN", secondary: "TAN⁻¹", alpha: "G", row: 2, col: 2, gridRow: 5, gridColumn: "10 / span 3" },
+  { label: "^", secondary: "π", alpha: "H", row: 2, col: 1, gridRow: 5, gridColumn: "13 / span 3" },
 
-  { label: "Log", row: 4, col: 5 },
-  { label: "7", row: 4, col: 4 },
-  { label: "8", row: 4, col: 3 },
-  { label: "9", row: 4, col: 2 },
-  { label: "Up", row: 4, col: 0 },
+  { label: "x²", secondary: "√", alpha: "I", row: 3, col: 5, gridRow: 6, gridColumn: "1 / span 3" },
+  { label: ",", secondary: "EE", alpha: "J", row: 3, col: 4, gridRow: 6, gridColumn: "4 / span 3" },
+  { label: "(", secondary: "{", alpha: "K", row: 3, col: 3, gridRow: 6, gridColumn: "7 / span 3" },
+  { label: ")", secondary: "}", alpha: "L", row: 3, col: 2, gridRow: 6, gridColumn: "10 / span 3" },
+  { label: "÷", secondary: "b/c", alpha: "M", kind: "nav", row: 3, col: 1, gridRow: 6, gridColumn: "13 / span 3" },
 
-  { label: "Ln", row: 5, col: 5 },
-  { label: "4", row: 5, col: 4 },
-  { label: "5", row: 5, col: 3 },
-  { label: "6", row: 5, col: 2 },
-  { label: "Right", row: 5, col: 0 },
+  { label: "LOG", secondary: "10ˣ", alpha: "N", row: 4, col: 5, gridRow: 7, gridColumn: "1 / span 3" },
+  { label: "7", alpha: "O", kind: "light", row: 4, col: 4, gridRow: 7, gridColumn: "4 / span 3" },
+  { label: "8", alpha: "P", kind: "light", row: 4, col: 3, gridRow: 7, gridColumn: "7 / span 3" },
+  { label: "9", alpha: "Q", kind: "light", row: 4, col: 2, gridRow: 7, gridColumn: "10 / span 3" },
+  { label: "×", alpha: "R", row: 4, col: 1, kind: "nav", gridRow: 7, gridColumn: "13 / span 3" },
 
-  { label: "Sto", row: 6, col: 5 },
-  { label: "1", row: 6, col: 4 },
-  { label: "2", row: 6, col: 3 },
-  { label: "3", row: 6, col: 2 },
-  { label: "Left", row: 6, col: 0 },
+  { label: "LN", secondary: "eˣ", alpha: "S", row: 5, col: 5, gridRow: 8, gridColumn: "1 / span 3" },
+  { label: "4", secondary: "L4", alpha: "T", kind: "light", row: 5, col: 4, gridRow: 8, gridColumn: "4 / span 3" },
+  { label: "5", secondary: "L5", alpha: "U", kind: "light", row: 5, col: 3, gridRow: 8, gridColumn: "7 / span 3" },
+  { label: "6", secondary: "L6", alpha: "V", kind: "light", row: 5, col: 2, gridRow: 8, gridColumn: "10 / span 3" },
+  { label: "-", alpha: "W", row: 5, col: 1, kind: "nav", gridRow: 8, gridColumn: "13 / span 3" },
 
-  { label: "Off", row: 7, col: 5 },
-  { label: "0", row: 7, col: 4 },
-  { label: ".", row: 7, col: 3 },
-  { label: "(-)", row: 7, col: 2 },
-  { label: "Down", row: 7, col: 0 },
+  { label: "STO▶", alpha: "X", row: 6, col: 5, gridRow: 9, gridColumn: "1 / span 3" },
+  { label: "1", secondary: "L1", alpha: "Y", kind: "light", row: 6, col: 4, gridRow: 9, gridColumn: "4 / span 3" },
+  { label: "2", secondary: "L2", alpha: "Z", kind: "light", row: 6, col: 3, gridRow: 9, gridColumn: "7 / span 3" },
+  { label: "3", secondary: "L3", alpha: "θ", kind: "light", row: 6, col: 2, gridRow: 9, gridColumn: "10 / span 3" },
+  { label: "+", secondary: "UNIT", alpha: "\"", row: 6, col: 1, kind: "nav", gridRow: 9, gridColumn: "13 / span 3" },
 
-  { label: "*", row: 4, col: 1 },
-  { label: "-", row: 5, col: 1 },
-  { label: "+", row: 6, col: 1 },
-  { label: "Enter", row: 7, col: 1, wide: true },
-  { label: "On", on: true, kind: "accent", wide: true }
+  { label: "ON", secondary: "OFF", alpha: "␣", on: true, kind: "power", gridRow: 10, gridColumn: "1 / span 3" },
+  { label: "0", secondary: "MEM", row: 7, col: 4, kind: "light", gridRow: 10, gridColumn: "4 / span 3" },
+  { label: ".", secondary: ":", row: 7, col: 3, kind: "light", gridRow: 10, gridColumn: "7 / span 3" },
+  { label: "(-)", secondary: "ANS", alpha: "?", row: 7, col: 2, kind: "light", gridRow: 10, gridColumn: "10 / span 3" },
+  { label: "ENTER", secondary: "ENTRY", row: 7, col: 1, kind: "nav", gridRow: 10, gridColumn: "13 / span 3" }
 ];
 
 const HOST_KEY_MAP = {
@@ -604,14 +604,38 @@ function releaseButton(button, binding) {
 
 function createKeypad() {
   KEY_LAYOUT.forEach((binding, index) => {
+    const slot = document.createElement("div");
+    slot.className = "key-slot";
+
+    if (binding.gridRow) slot.style.gridRow = String(binding.gridRow);
+    if (binding.gridColumn) slot.style.gridColumn = binding.gridColumn;
+
+    if (binding.secondary) {
+      const secondary = document.createElement("span");
+      secondary.className = "key-secondary";
+      secondary.textContent = binding.secondary;
+      slot.appendChild(secondary);
+    }
+
+    if (binding.alpha) {
+      const alpha = document.createElement("span");
+      alpha.className = "key-alpha";
+      alpha.textContent = binding.alpha;
+      slot.appendChild(alpha);
+    }
+
     const button = document.createElement("button");
     button.type = "button";
     button.className = "key";
     button.dataset.keyId = String(index);
-    button.textContent = binding.label;
+    button.setAttribute("aria-label", binding.ariaLabel ?? binding.label);
 
     if (binding.kind) button.classList.add(binding.kind);
-    if (binding.wide) button.classList.add("wide");
+
+    const label = document.createElement("span");
+    label.className = "key-label";
+    label.textContent = binding.label;
+    button.appendChild(label);
 
     const press = (event) => {
       event.preventDefault();
@@ -626,7 +650,28 @@ function createKeypad() {
     button.addEventListener("pointerup", release);
     button.addEventListener("pointercancel", release);
     button.addEventListener("pointerleave", () => releaseButton(button, binding));
-    keypad.appendChild(button);
+    slot.appendChild(button);
+    keypad.appendChild(slot);
+  });
+}
+
+function validateKeyLayout() {
+  const seen = new Set();
+
+  KEY_LAYOUT.forEach((binding) => {
+    if (binding.on) return;
+    if (!Number.isInteger(binding.row) || !Number.isInteger(binding.col)) {
+      console.warn("[ti80] Invalid keypad binding", binding);
+      return;
+    }
+    if (binding.row < 0 || binding.row > 7 || binding.col < 0 || binding.col > 6) {
+      console.warn("[ti80] Out-of-range keypad binding", binding);
+      return;
+    }
+
+    const matrixKey = `${binding.row}:${binding.col}`;
+    if (seen.has(matrixKey)) console.warn("[ti80] Duplicate keypad binding", matrixKey, binding);
+    else seen.add(matrixKey);
   });
 }
 
@@ -760,6 +805,7 @@ function bootModule() {
   if (!animationFrame) animationFrame = window.requestAnimationFrame(animationLoop);
 }
 
+validateKeyLayout();
 createKeypad();
 installEventHandlers();
 drawScreen();
