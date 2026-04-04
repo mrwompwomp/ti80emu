@@ -1,6 +1,7 @@
 const WIDTH = 64;
 const HEIGHT = 48;
 const SCALE = 6;
+const ROM_STORAGE_KEY = "ti80-rom";
 
 const KEY_LAYOUT = [
   { label: "Y=", row: 3, col: 6, kind: "function" },
@@ -400,16 +401,75 @@ function withHeapBuffer(data, fn) {
   }
 }
 
-async function handleRomSelection(event) {
-  const [file] = event.target.files ?? [];
-  if (!file || !state.ready) return;
+function bytesToBase64(bytes) {
+  let binary = "";
+  const chunkSize = 0x8000;
 
-  const bytes = await readFile(file);
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+
+  return window.btoa(binary);
+}
+
+function base64ToBytes(base64) {
+  const binary = window.atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+
+  return bytes;
+}
+
+function saveRomToStorage(bytes, name) {
+  try {
+    window.localStorage.setItem(ROM_STORAGE_KEY, JSON.stringify({
+      name,
+      bytes: bytesToBase64(bytes)
+    }));
+    return true;
+  } catch (error) {
+    console.warn("[ti80] Failed to save ROM to localStorage", error);
+    return false;
+  }
+}
+
+function clearSavedRom() {
+  try {
+    window.localStorage.removeItem(ROM_STORAGE_KEY);
+  } catch (error) {
+    console.warn("[ti80] Failed to clear saved ROM from localStorage", error);
+  }
+}
+
+function readSavedRom() {
+  try {
+    const raw = window.localStorage.getItem(ROM_STORAGE_KEY);
+    if (!raw) return null;
+
+    const saved = JSON.parse(raw);
+    if (!saved || typeof saved.bytes !== "string") {
+      clearSavedRom();
+      return null;
+    }
+
+    return {
+      name: typeof saved.name === "string" && saved.name ? saved.name : "Saved ROM",
+      bytes: base64ToBytes(saved.bytes)
+    };
+  } catch (error) {
+    console.warn("[ti80] Failed to read saved ROM from localStorage", error);
+    clearSavedRom();
+    return null;
+  }
+}
+
+function loadRomBytes(bytes, label, statusText) {
   const loaded = withHeapBuffer(bytes, (ptr) => ModuleRef._emulator_load_rom(ptr, bytes.length));
 
   if (!loaded) {
     setStatus("ROM load failed");
-    return;
+    return false;
   }
 
   state.romLoaded = true;
@@ -423,8 +483,40 @@ async function handleRomSelection(event) {
   updateProgramCounter();
   updateDebugger();
   drawScreen();
-  setStatus(`ROM loaded: ${file.name}. Emulation running; ON pulse queued.`);
-  logSnapshot(`ROM loaded: ${file.name}`);
+  setStatus(statusText ?? `ROM loaded: ${label}. Emulation running; ON pulse queued.`);
+  logSnapshot(`ROM loaded: ${label}`);
+  return true;
+}
+
+async function handleRomSelection(event) {
+  const [file] = event.target.files ?? [];
+  if (!file || !state.ready) return;
+
+  const bytes = await readFile(file);
+  if (!loadRomBytes(bytes, file.name)) return;
+
+  const saved = saveRomToStorage(bytes, file.name);
+  setStatus(saved
+    ? `ROM loaded: ${file.name}. Saved locally; emulation running.`
+    : `ROM loaded: ${file.name}. Emulation running; local save failed.`);
+}
+
+function restoreSavedRom() {
+  if (!state.ready || state.romLoaded) return;
+
+  const savedRom = readSavedRom();
+  if (!savedRom) return;
+
+  const loaded = loadRomBytes(
+    savedRom.bytes,
+    savedRom.name,
+    `Saved ROM restored: ${savedRom.name}. Emulation running.`
+  );
+
+  if (!loaded) {
+    clearSavedRom();
+    setStatus("Saved ROM restore failed");
+  }
 }
 
 async function handleStateSelection(event) {
@@ -663,6 +755,7 @@ function bootModule() {
   updateDebugger();
   setStatus(`Ready for ROM (${ModuleRef._emulator_rom_size_required()} bytes expected)`);
   logSnapshot("Module initialized");
+  restoreSavedRom();
 
   if (!animationFrame) animationFrame = window.requestAnimationFrame(animationLoop);
 }
