@@ -1,3 +1,6 @@
+#include <stdio.h>
+#include <stdlib.h>
+
 #include "shared.h"
 #ifdef TIEMU_LINK
 #include <ticables.h>
@@ -63,7 +66,9 @@ static void reg4wRaw(uint16_t i, uint8_t x) {
 		if(x & 4) { // TODO: CHECK
 			reg8w(0x11C, 0xAA); reg8w(0x11E, 0xAA);
 		}
-		if(x & 8); // TODO: CHECK
+		if(x & 8) {
+			// TODO: CHECK
+		}
 		if(x & 2) debugBreak("Unknown write to (10F): %X", x & 0xF);
 	}
 	if(i == 0x110) writeRepeat = 1;
@@ -184,6 +189,30 @@ uint16_t PC, stack[8];
 	}
 #define DEC(x) (((x) >> 4) * 10 + ((x) & 0xF))
 #define BCD(x) (((x) / 100) << 8 | (((x) / 10) % 10) << 4 | ((x) % 10))
+
+// TODO: FIX BCD ARITHMETIC WITH DIGITS OVER 9
+static uint8_t addWithCarry(int b, uint8_t x, uint8_t y, int *carry, uint16_t op) {
+	if(b > 0)
+		if(op & 0x0800) {
+			int sum = DEC(x) + DEC(y) + *carry;
+			*carry = sum > (b == 4 ? 9 : 99);
+			return BCD(sum);
+		} else {
+			int sum = x + y + *carry;
+			*carry = (sum >> b) & 1;
+			return (uint8_t)sum;
+		}
+	else if(op & 0x0800) {
+		int sum = DEC(x) - DEC(y) - *carry;
+		*carry = sum < 0;
+		sum = b == -4 ? (sum + 10) % 10 : (sum + 100) % 100;
+		return BCD(sum);
+	} else {
+		int sum = x - y - *carry;
+		*carry = (sum >> -b) & 1;
+		return (uint8_t)sum;
+	}
+}
 int step() {
 	// TODO: CHECK
 	if(onKey && (reg[0x10E>>1] & 0xC) == 0xC) reset();
@@ -199,23 +228,6 @@ int step() {
 				reg[0x0F0>>1], I, reg8r(I), DP, reg[0x118>>1] & 0xF);
 		}
 		uint16_t op = word(PC++);
-
-		// TODO: FIX BCD ARITHMETIC WITH DIGITS OVER 9
-		uint8_t ADD(int b, uint8_t x, uint8_t y) {
-			if(b > 0)
-				if(op & 0x0800) {
-					int sum = DEC(x) + DEC(y) + carry;
-					carry = sum > (b == 4 ? 9 : 99);
-					return BCD(sum);
-				} else {int sum = x + y + carry; carry = sum >> b & 1; return sum;}
-			else
-				if(op & 0x0800) {
-					int sum = DEC(x) - DEC(y) - carry;
-					carry = sum < 0;
-					sum = b == -4 ? (sum + 10) % 10 : (sum + 100) % 100;
-					return BCD(sum);
-				} else {int sum = x - y - carry; carry = sum >> -b & 1; return sum;}
-		}
 
 		if(op == 0xB000) {debugWindow(); debug("Break instruction"); stopped = 1;}
 		else if(op < 0x0200) {
@@ -281,7 +293,7 @@ int step() {
 		else if(op < 0x7000) {COND(regSr(I), op & SMASK); Iadd(2 - S);}
 		else if(op < 0x8000) COND(regSr(0x0F0), op & SMASK);
 		else if(op < 0xA000) {
-			regSw(I, ADD(op & 0x1000 ? -SB : SB, regSr(I), regSr(JYX)));
+			regSw(I, addWithCarry(op & 0x1000 ? -SB : SB, regSr(I), regSr(JYX), &carry, op));
 			if(rep) Iadd(2 - S);
 			M_JUMP_CALL;
 		}
@@ -293,13 +305,13 @@ int step() {
 			if(test) C_JUMP_CALL;
 		}
 		else if(op < 0xC000) {COND(regSr(I), regSr(JYX)); if(rep) Iadd(2 - S);}
-		else if(op < 0xE000) {reg4w(EF, ADD(4, reg4r(EF), op & 0xF)); M_JUMP_CALL;}
+		else if(op < 0xE000) {reg4w(EF, addWithCarry(4, reg4r(EF), op & 0xF, &carry, op)); M_JUMP_CALL;}
 		else if(op < 0xF000) {
-			regSw(I, ADD(SB, regSr(I), op & SMASK));
+			regSw(I, addWithCarry(SB, regSr(I), op & SMASK, &carry, op));
 			if(rep) Iadd(2 - S);
 			M_JUMP_CALL;
 		}
-		else {regSw(0x0F0, ADD(SB, regSr(0x0F0), op & SMASK)); M_JUMP_CALL;}
+		else {regSw(0x0F0, addWithCarry(SB, regSr(0x0F0), op & SMASK, &carry, op)); M_JUMP_CALL;}
 		if(writeRepeat) {
 			if(repeat) {repeat = reg[0x110>>1] & 0xF; if(!repeat) repeat = 0x10;}
 		}
