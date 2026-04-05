@@ -131,13 +131,29 @@ int emulator_program_counter(void) {
 }
 
 EMU_EXPORT
+void emulator_set_program_counter(uint16_t address) {
+	PC = address;
+}
+
+EMU_EXPORT
 uint8_t *emulator_registers_ptr(void) {
 	return reg;
 }
 
 EMU_EXPORT
+void emulator_set_register_nibble(uint16_t index, uint8_t value) {
+	reg4w(index, value & 0xF);
+}
+
+EMU_EXPORT
 uint16_t *emulator_stack_ptr(void) {
 	return stack;
+}
+
+EMU_EXPORT
+void emulator_set_stack_value(int index, uint16_t value) {
+	if(index < 0 || index >= 8) return;
+	stack[index] = value;
 }
 
 EMU_EXPORT
@@ -168,6 +184,31 @@ void emulator_toggle_breakpoint_pc(void) {
 EMU_EXPORT
 int emulator_breakpoint_at_pc(void) {
 	return breakpointAt(PC);
+}
+
+EMU_EXPORT
+int emulator_breakpoint_at(uint16_t address) {
+	return breakpointAt(address);
+}
+
+EMU_EXPORT
+void emulator_set_breakpoint(uint16_t address, int enabled) {
+	setBreakpointAt(address, enabled);
+}
+
+EMU_EXPORT
+void emulator_clear_breakpoints(void) {
+	clearBreakpoints();
+}
+
+EMU_EXPORT
+size_t emulator_copy_breakpoints(uint16_t *buffer, size_t capacity) {
+	return copyBreakpoints(buffer, capacity);
+}
+
+EMU_EXPORT
+size_t emulator_breakpoint_count(void) {
+	return breakpointCount();
 }
 
 EMU_EXPORT

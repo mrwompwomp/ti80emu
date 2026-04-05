@@ -64,28 +64,6 @@
       </div>
 
       <aside class="info-panel">
-        <section class="panel-block session-panel">
-          <h2>Session</h2>
-          <dl class="status-grid">
-            <div>
-              <dt>Runtime</dt>
-              <dd id="runtime-status">Idle</dd>
-            </div>
-            <div>
-              <dt>PC</dt>
-              <dd id="pc-status">0000</dd>
-            </div>
-            <div>
-              <dt>ROM</dt>
-              <dd id="rom-status">Missing</dd>
-            </div>
-            <div>
-              <dt>State</dt>
-              <dd id="state-status">Unsaved</dd>
-            </div>
-          </dl>
-        </section>
-
         <section class="panel-block debugger-panel">
           <div class="panel-heading">
             <h2>Debugger</h2>
@@ -112,6 +90,24 @@
             </div>
           </div>
 
+          <div class="debug-toolbar">
+            <label class="debug-field">
+              <span class="debug-label">PC</span>
+              <div class="debug-field-row">
+                <input id="pc-editor" type="text" inputmode="text" autocomplete="off" spellcheck="false" value="0000">
+                <button id="apply-pc-button" type="button">Apply</button>
+              </div>
+            </label>
+            <label class="debug-field">
+              <span class="debug-label">Breakpoint</span>
+              <div class="debug-field-row">
+                <input id="breakpoint-address" type="text" inputmode="text" autocomplete="off" spellcheck="false" placeholder="0000">
+                <button id="set-breakpoint-button" type="button">Toggle</button>
+              </div>
+            </label>
+            <button id="clear-breakpoints-button" class="debug-toolbar-button" type="button">Clear All Breakpoints</button>
+          </div>
+
           <div class="register-grid">
             <div>
               <span class="debug-label">A</span>
@@ -129,16 +125,25 @@
               <span class="debug-label">Breakpoint</span>
               <code id="breakpoint-status">Off</code>
             </div>
+            <div>
+              <span class="debug-label">Breakpoints</span>
+              <code id="breakpoint-count">0</code>
+            </div>
+          </div>
+
+          <div class="breakpoint-panel">
+            <span class="debug-label">Active Breakpoints</span>
+            <div id="breakpoint-list" class="breakpoint-list"></div>
           </div>
 
           <div class="debug-columns">
             <div>
               <span class="debug-label">Stack</span>
-              <pre id="stack-view" class="debug-pre"></pre>
+              <div id="stack-view" class="debug-editor-grid stack-editor"></div>
             </div>
             <div>
               <span class="debug-label">Registers</span>
-              <pre id="register-view" class="debug-pre register-view"></pre>
+              <div id="register-view" class="register-editor"></div>
             </div>
           </div>
         </section>

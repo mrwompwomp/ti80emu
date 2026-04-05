@@ -168,7 +168,10 @@ input {
 .file-button,
 .ghost-button,
 .meta-actions button,
-.debug-actions button {
+.debug-actions button,
+.debug-field-row button,
+.debug-toolbar-button,
+.breakpoint-item button {
   border: 0;
   border-radius: 16px;
   cursor: pointer;
@@ -221,6 +224,9 @@ input {
 .ghost-button:hover,
 .meta-actions button:hover,
 .debug-actions button:hover,
+.debug-field-row button:hover,
+.debug-toolbar-button:hover,
+.breakpoint-item button:hover,
 .key:hover {
   transform: translateY(-1px);
   filter: brightness(1.03);
@@ -275,7 +281,6 @@ button:disabled {
 }
 
 .screen-stack {
-  width: 96%;
   margin: 0 auto;
   padding: 12px 35px;
   border-radius: 3px;
@@ -504,7 +509,10 @@ button:disabled {
   box-shadow: 0 8px 16px rgba(86, 78, 63, 0.12);
 }
 
-.debug-actions button:active {
+.debug-actions button:active,
+.debug-field-row button:active,
+.debug-toolbar-button:active,
+.breakpoint-item button:active {
   transform: translateY(1px) scale(0.985);
   box-shadow:
     inset 0 2px 10px rgba(0, 0, 0, 0.16),
@@ -512,6 +520,7 @@ button:disabled {
 }
 
 .debug-status-block,
+.debug-toolbar,
 .register-grid,
 .debug-columns {
   display: grid;
@@ -524,16 +533,63 @@ button:disabled {
 }
 
 .register-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   margin-bottom: 10px;
 }
 
 .debug-status-block > div,
+.debug-toolbar > * ,
 .register-grid > div,
 .debug-columns > div {
   padding: 9px 10px;
   border-radius: 12px;
   background: rgba(241, 236, 226, 0.9);
+}
+
+.debug-toolbar {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  margin-bottom: 10px;
+  align-items: end;
+}
+
+.debug-field {
+  display: grid;
+  gap: 6px;
+}
+
+.debug-field-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.debug-field-row button,
+.debug-toolbar-button,
+.breakpoint-item button {
+  min-height: 34px;
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #efe6d4 0%, #c7b99c 100%);
+  color: var(--ink);
+  box-shadow: 0 8px 16px rgba(86, 78, 63, 0.12);
+}
+
+.debug-input,
+.debug-field-row input {
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid rgba(31, 36, 29, 0.12);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink);
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.78rem;
+}
+
+.debug-input:disabled,
+.debug-field-row input:disabled {
+  background: rgba(234, 228, 217, 0.72);
 }
 
 .debug-label {
@@ -552,24 +608,93 @@ button:disabled {
   word-break: break-word;
 }
 
-.debug-pre {
-  margin: 0;
-  max-height: 270px;
-  overflow: auto;
-  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.73rem;
-  line-height: 1.34;
-  white-space: pre;
-}
-
 .debug-columns {
-  grid-template-columns: minmax(100px, 200px) minmax(340px, 1fr);
+  grid-template-columns: 120px minmax(0, 1fr);
 }
 
-.register-view {
+.debug-editor-grid,
+.register-editor,
+.breakpoint-list {
+  display: grid;
+  gap: 8px;
   max-height: 360px;
-  column-count: 2;
-  column-gap: 16px;
+  overflow: auto;
+}
+
+.debug-editor-item {
+  display: grid;
+  grid-template-columns: 36px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.debug-editor-label,
+.register-row-label {
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
+
+.register-editor {
+  gap: 4px;
+}
+
+.register-row {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+}
+
+.register-row-cells {
+  display: grid;
+  grid-template-columns: repeat(16, minmax(0, 1fr));
+  gap: 0;
+}
+
+.register-cell {
+  width: 100%;
+  min-height: 20px;
+  padding: 0;
+  border: 1px solid rgba(31, 36, 29, 0.12);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.92);
+  color: var(--ink);
+  text-align: center;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.8rem;
+}
+
+.stack-editor {
+  align-content: start;
+}
+
+.breakpoint-panel {
+  margin-bottom: 10px;
+}
+
+.breakpoint-list {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+
+.breakpoint-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: rgba(241, 236, 226, 0.9);
+}
+
+.breakpoint-item code,
+.breakpoint-empty {
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+}
+
+.breakpoint-empty {
+  margin: 0;
+  color: var(--muted);
 }
 
 @media (max-width: 900px) {
@@ -588,6 +713,7 @@ button:disabled {
   }
 
   .register-grid,
+  .debug-toolbar,
   .debug-status-block,
   .debug-columns {
     grid-template-columns: 1fr;
@@ -658,5 +784,9 @@ button:disabled {
 
   .register-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .breakpoint-list {
+    grid-template-columns: 1fr;
   }
 }

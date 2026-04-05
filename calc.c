@@ -222,6 +222,35 @@ int breakpointAt(uint16_t address) {
 	return breakpoint[address] != 0;
 }
 
+void setBreakpointAt(uint16_t address, int enabled) {
+	breakpoint[address] = enabled ? 1 : 0;
+}
+
+void clearBreakpoints(void) {
+	memset(breakpoint, 0, sizeof(breakpoint));
+}
+
+size_t breakpointCount(void) {
+	size_t count = 0;
+
+	for(size_t address = 0; address < sizeof(breakpoint); address++)
+		if(breakpoint[address]) count++;
+
+	return count;
+}
+
+size_t copyBreakpoints(uint16_t *buffer, size_t capacity) {
+	size_t count = 0;
+
+	for(uint32_t address = 0; address < 0x10000; address++) {
+		if(!breakpoint[address]) continue;
+		if(buffer != NULL && count < capacity) buffer[count] = (uint16_t)address;
+		count++;
+	}
+
+	return count;
+}
+
 void singleStep(void) {
 	stopped = 1;
 	debug("");

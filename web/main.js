@@ -2,7 +2,9 @@ const WIDTH = 64;
 const HEIGHT = 48;
 const SCALE = 6;
 const ROM_STORAGE_KEY = "ti80-rom";
+const BREAKPOINT_STORAGE_KEY = "ti80-breakpoints";
 const EMULATION_FRAME_MS = 1000 / 60;
+const REGISTER_ROWS = Array.from({ length: 31 }, (_, row) => row).filter((row) => row !== 15);
 
 const KEY_LAYOUT = [
   { label: "Y=", secondary: "STATPLOT", row: 3, col: 6, kind: "function", gridRow: 1, gridColumn: "1 / span 3" },
@@ -140,19 +142,22 @@ const throttleSlider = document.getElementById("throttle-slider");
 const throttleValue = document.getElementById("throttle-value");
 const keypad = document.getElementById("keypad");
 const statusPill = document.getElementById("status-pill");
-const runtimeStatus = document.getElementById("runtime-status");
-const pcStatus = document.getElementById("pc-status");
-const romStatus = document.getElementById("rom-status");
-const stateStatus = document.getElementById("state-status");
 const breakOnDebugToggle = document.getElementById("break-on-debug");
 const stepOverButton = document.getElementById("step-over-button");
 const toggleBreakpointButton = document.getElementById("toggle-breakpoint-button");
 const debugStatusText = document.getElementById("debug-status");
 const opcodePreview = document.getElementById("opcode-preview");
+const pcEditor = document.getElementById("pc-editor");
+const applyPcButton = document.getElementById("apply-pc-button");
 const regAText = document.getElementById("reg-a");
 const regIText = document.getElementById("reg-i");
 const regSPText = document.getElementById("reg-sp");
 const breakpointStatus = document.getElementById("breakpoint-status");
+const breakpointCountText = document.getElementById("breakpoint-count");
+const breakpointAddressInput = document.getElementById("breakpoint-address");
+const setBreakpointButton = document.getElementById("set-breakpoint-button");
+const clearBreakpointsButton = document.getElementById("clear-breakpoints-button");
+const breakpointList = document.getElementById("breakpoint-list");
 const stackView = document.getElementById("stack-view");
 const registerView = document.getElementById("register-view");
 
@@ -168,6 +173,8 @@ offscreen.height = HEIGHT;
 const offscreenCtx = offscreen.getContext("2d", { alpha: false });
 const activeButtons = new Map();
 const activeKeys = new Map();
+const registerInputs = new Map();
+const stackInputs = [];
 
 const state = {
   ready: false,
@@ -188,6 +195,8 @@ let onPulseTimer = 0;
 let throttlePercent = Number(throttleSlider?.value ?? 100);
 let emulationBudgetMs = 0;
 let lastAnimationTimestamp = 0;
+let lastBreakpointListKey = "";
+let currentRomId = "";
 
 function hex(value, width = 4) {
   return value.toString(16).toUpperCase().padStart(width, "0");
@@ -272,6 +281,189 @@ function reg8At(index) {
   return low | (reg4At(highIndex) << 4);
 }
 
+function normalizeHex(value, width) {
+  return value.replace(/[^0-9a-f]/gi, "").toUpperCase().slice(0, width);
+}
+
+function parseHex(value, width) {
+  const normalized = normalizeHex(value, width);
+  if (!normalized) return null;
+  const parsed = Number.parseInt(normalized, 16);
+  if (Number.isNaN(parsed)) return null;
+  const max = (1 << (width * 4)) - 1;
+  return parsed & max;
+}
+
+function debuggerEditable() {
+  return state.ready && state.romLoaded && !state.running;
+}
+
+function syncInputValue(input, value, disabled) {
+  input.disabled = disabled;
+  if (document.activeElement !== input) input.value = value;
+}
+
+function getBreakpointAddresses() {
+  if (!state.ready) return [];
+  const count = ModuleRef._emulator_breakpoint_count();
+  if (!count) return [];
+
+  const ptr = ModuleRef._malloc(count * 2);
+  try {
+    const written = ModuleRef._emulator_copy_breakpoints(ptr, count);
+    const view = new Uint16Array(ModuleRef.HEAPU8.buffer, ptr, written);
+    return Array.from(view);
+  } finally {
+    ModuleRef._free(ptr);
+  }
+}
+
+function buildStackEditor() {
+  stackView.textContent = "";
+  for (let index = 0; index < 8; index += 1) {
+    const item = document.createElement("label");
+    item.className = "debug-editor-item";
+
+    const label = document.createElement("span");
+    label.className = "debug-editor-label";
+    label.textContent = `#${index}`;
+    item.appendChild(label);
+
+    const input = document.createElement("input");
+    input.className = "debug-input";
+    input.type = "text";
+    input.inputMode = "text";
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.dataset.stackIndex = String(index);
+    item.appendChild(input);
+
+    stackInputs.push(input);
+    stackView.appendChild(item);
+  }
+}
+
+function buildRegisterEditor() {
+  registerView.textContent = "";
+
+  REGISTER_ROWS.forEach((row) => {
+    const rowElement = document.createElement("div");
+    rowElement.className = "register-row";
+
+    const label = document.createElement("span");
+    label.className = "register-row-label";
+    label.textContent = `${hex(row, 2)}0`;
+    rowElement.appendChild(label);
+
+    const cells = document.createElement("div");
+    cells.className = "register-row-cells";
+
+    for (let column = 0; column < 16; column += 1) {
+      const index = row * 16 + column;
+      const input = document.createElement("input");
+      input.className = "register-cell";
+      input.type = "text";
+      input.inputMode = "text";
+      input.autocomplete = "off";
+      input.spellcheck = false;
+      input.maxLength = 1;
+      input.dataset.registerIndex = String(index);
+      cells.appendChild(input);
+      registerInputs.set(index, input);
+    }
+
+    rowElement.appendChild(cells);
+    registerView.appendChild(rowElement);
+  });
+}
+
+function renderStackEditor(disabled) {
+  if (!state.ready || !state.romLoaded) {
+    stackInputs.forEach((input) => {
+      input.disabled = true;
+      if (document.activeElement !== input) input.value = "";
+    });
+    return;
+  }
+
+  const stackHeap = new Uint16Array(ModuleRef.HEAPU8.buffer, state.stackPtr, 8);
+  stackInputs.forEach((input, index) => {
+    syncInputValue(input, hex(stackHeap[index], 4), disabled);
+  });
+}
+
+function renderRegisterEditor(disabled) {
+  if (!state.ready || !state.romLoaded) {
+    registerInputs.forEach((input) => {
+      input.disabled = true;
+      if (document.activeElement !== input) input.value = "";
+    });
+    return;
+  }
+
+  registerInputs.forEach((input, index) => {
+    syncInputValue(input, hex(reg4At(index), 1), disabled);
+  });
+}
+
+function renderBreakpointList(disabled, addresses) {
+  const mode = !state.ready ? "not-ready" : (!state.romLoaded ? "no-rom" : "rom-loaded");
+  const renderKey = `${mode}:${disabled ? 1 : 0}:${addresses.join(",")}`;
+  if (renderKey === lastBreakpointListKey) return;
+  lastBreakpointListKey = renderKey;
+  breakpointList.textContent = "";
+
+  if (!state.ready || !state.romLoaded) {
+    const empty = document.createElement("p");
+    empty.className = "breakpoint-empty";
+    empty.textContent = "Load a ROM to manage breakpoints.";
+    breakpointList.appendChild(empty);
+    return;
+  }
+
+  if (!addresses.length) {
+    const empty = document.createElement("p");
+    empty.className = "breakpoint-empty";
+    empty.textContent = "No active breakpoints.";
+    breakpointList.appendChild(empty);
+    return;
+  }
+
+  addresses.forEach((address) => {
+    const item = document.createElement("div");
+    item.className = "breakpoint-item";
+
+    const code = document.createElement("code");
+    code.textContent = hex(address, 4);
+    item.appendChild(code);
+
+    const focusButton = document.createElement("button");
+    focusButton.type = "button";
+    focusButton.textContent = "Use";
+    focusButton.disabled = disabled;
+    focusButton.addEventListener("click", () => {
+      breakpointAddressInput.value = hex(address, 4);
+      pcEditor.value = hex(address, 4);
+    });
+    item.appendChild(focusButton);
+
+    const clearButton = document.createElement("button");
+    clearButton.type = "button";
+    clearButton.textContent = "Clear";
+    clearButton.disabled = disabled;
+    clearButton.addEventListener("click", () => {
+      ModuleRef._emulator_set_breakpoint(address, 0);
+      persistCurrentBreakpoints();
+      updateDebugger();
+      setStatus(`Breakpoint ${hex(address, 4)} cleared`);
+      logSnapshot(`Breakpoint cleared at ${hex(address, 4)}`);
+    });
+    item.appendChild(clearButton);
+
+    breakpointList.appendChild(item);
+  });
+}
+
 function updateDebugger() {
   if (!state.ready) return;
 
@@ -282,8 +474,15 @@ function updateDebugger() {
     regIText.textContent = "000";
     regSPText.textContent = "0";
     breakpointStatus.textContent = "Off";
-    stackView.textContent = "";
-    registerView.textContent = "";
+    breakpointCountText.textContent = "0";
+    pcEditor.value = "0000";
+    breakpointAddressInput.value = "";
+    applyPcButton.disabled = true;
+    setBreakpointButton.disabled = true;
+    clearBreakpointsButton.disabled = true;
+    renderStackEditor(true);
+    renderRegisterEditor(true);
+    renderBreakpointList(true, []);
     breakOnDebugToggle.checked = false;
     return;
   }
@@ -292,35 +491,31 @@ function updateDebugger() {
   const statusPtr = ModuleRef._emulator_debug_status_ptr();
   const statusText = statusPtr ? ModuleRef.UTF8ToString(statusPtr) : "";
   const opcodeBytes = [];
-  const stackValues = [];
-  const registerRows = [];
-  const stackHeap = new Uint16Array(ModuleRef.HEAPU8.buffer, state.stackPtr, 8);
+  const editable = debuggerEditable();
+  const breakpoints = getBreakpointAddresses();
 
   for (let i = 0; i < 8; i += 1) opcodeBytes.push(hex(ModuleRef._emulator_debug_byte((pc + i) & 0xffff), 2));
-  for (let i = 0; i < 8; i += 1) stackValues.push(`${i}: ${hex(stackHeap[i], 4)}`);
-  for (let row = 0; row < 31; row += 1) {
-    if (row === 15) continue;
-    let line = `${hex(row, 2)}0: `;
-    for (let column = 0; column < 16; column += 1) line += hex(reg4At(row * 16 + column), 1);
-    registerRows.push(line);
-  }
 
   regAText.textContent = hex(reg8At(0x0ff), 2);
   regIText.textContent = `${hex(reg4At(0x102), 1)}${hex(reg8At(0x100), 2)}`;
   regSPText.textContent = hex(reg4At(0x118), 1);
   breakpointStatus.textContent = ModuleRef._emulator_breakpoint_at_pc() ? "On" : "Off";
+  breakpointCountText.textContent = String(breakpoints.length);
   debugStatusText.textContent = statusText || (ModuleRef._emulator_error_stop() ? "Execution halted on error" : "No debug message");
   opcodePreview.textContent = opcodeBytes.join(" ");
-  stackView.textContent = stackValues.join("\n");
-  registerView.textContent = registerRows.join("\n");
+  syncInputValue(pcEditor, hex(pc, 4), !editable);
+  breakpointAddressInput.disabled = !editable;
+  applyPcButton.disabled = !editable;
+  setBreakpointButton.disabled = !editable;
+  clearBreakpointsButton.disabled = !editable || breakpoints.length === 0;
+  renderStackEditor(!editable);
+  renderRegisterEditor(!editable);
+  renderBreakpointList(!editable, breakpoints);
   breakOnDebugToggle.checked = ModuleRef._emulator_break_on_debug() !== 0;
 }
 
 function syncControls() {
   const canInteract = state.ready && state.romLoaded;
-  runtimeStatus.textContent = state.running ? "Running" : "Paused";
-  romStatus.textContent = state.romLoaded ? "Loaded" : "Missing";
-  stateStatus.textContent = state.stateLoaded ? "Loaded" : "Unsaved";
   runToggle.textContent = state.running ? "Pause" : "Run";
   runToggle.disabled = !canInteract;
   stepButton.disabled = !canInteract;
@@ -334,7 +529,6 @@ function syncControls() {
 
 function updateProgramCounter() {
   if (!state.ready) return;
-  pcStatus.textContent = hex(ModuleRef._emulator_program_counter());
 }
 
 function drawScreen() {
@@ -454,10 +648,22 @@ function base64ToBytes(base64) {
   return bytes;
 }
 
-function saveRomToStorage(bytes, name) {
+function fingerprintRom(bytes) {
+  let hash = 0x811c9dc5;
+
+  for (let i = 0; i < bytes.length; i += 1) {
+    hash ^= bytes[i];
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+
+  return `${bytes.length.toString(16)}-${hash.toString(16).padStart(8, "0")}`;
+}
+
+function saveRomToStorage(bytes, name, id) {
   try {
     window.localStorage.setItem(ROM_STORAGE_KEY, JSON.stringify({
       name,
+      id,
       bytes: bytesToBase64(bytes)
     }));
     return true;
@@ -486,9 +692,12 @@ function readSavedRom() {
       return null;
     }
 
+    const bytes = base64ToBytes(saved.bytes);
+
     return {
       name: typeof saved.name === "string" && saved.name ? saved.name : "Saved ROM",
-      bytes: base64ToBytes(saved.bytes)
+      id: typeof saved.id === "string" && saved.id ? saved.id : fingerprintRom(bytes),
+      bytes
     };
   } catch (error) {
     console.warn("[ti80] Failed to read saved ROM from localStorage", error);
@@ -497,7 +706,72 @@ function readSavedRom() {
   }
 }
 
-function loadRomBytes(bytes, label, statusText) {
+function readSavedBreakpoints() {
+  try {
+    const raw = window.localStorage.getItem(BREAKPOINT_STORAGE_KEY);
+    if (!raw) return null;
+
+    const saved = JSON.parse(raw);
+    if (!saved || typeof saved.romId !== "string" || !Array.isArray(saved.addresses)) {
+      window.localStorage.removeItem(BREAKPOINT_STORAGE_KEY);
+      return null;
+    }
+
+    return {
+      romId: saved.romId,
+      addresses: saved.addresses
+        .map((address) => Number.parseInt(String(address), 10))
+        .filter((address) => Number.isInteger(address) && address >= 0 && address <= 0xffff)
+    };
+  } catch (error) {
+    console.warn("[ti80] Failed to read saved breakpoints from localStorage", error);
+    try {
+      window.localStorage.removeItem(BREAKPOINT_STORAGE_KEY);
+    } catch (removeError) {
+      console.warn("[ti80] Failed to clear saved breakpoints from localStorage", removeError);
+    }
+    return null;
+  }
+}
+
+function saveBreakpointsToStorage(romId, addresses) {
+  try {
+    if (!romId || !addresses.length) {
+      window.localStorage.removeItem(BREAKPOINT_STORAGE_KEY);
+      return true;
+    }
+
+    window.localStorage.setItem(BREAKPOINT_STORAGE_KEY, JSON.stringify({
+      romId,
+      addresses
+    }));
+    return true;
+  } catch (error) {
+    console.warn("[ti80] Failed to save breakpoints to localStorage", error);
+    return false;
+  }
+}
+
+function persistCurrentBreakpoints() {
+  if (!state.ready || !state.romLoaded || !currentRomId) return false;
+  return saveBreakpointsToStorage(currentRomId, getBreakpointAddresses());
+}
+
+function restoreSavedBreakpointsForCurrentRom() {
+  if (!state.ready || !state.romLoaded || !currentRomId) return;
+
+  ModuleRef._emulator_clear_breakpoints();
+  const saved = readSavedBreakpoints();
+  if (!saved || saved.romId !== currentRomId) {
+    lastBreakpointListKey = "";
+    return;
+  }
+
+  saved.addresses.forEach((address) => ModuleRef._emulator_set_breakpoint(address, 1));
+  lastBreakpointListKey = "";
+}
+
+function loadRomBytes(bytes, label, romId, statusText) {
   const loaded = withHeapBuffer(bytes, (ptr) => ModuleRef._emulator_load_rom(ptr, bytes.length));
 
   if (!loaded) {
@@ -505,12 +779,14 @@ function loadRomBytes(bytes, label, statusText) {
     return false;
   }
 
+  currentRomId = romId;
   state.romLoaded = true;
   state.stateLoaded = false;
   state.running = true;
   state.frameCounter = 0;
   state.lastBlankLogFrame = -120;
   resetThrottleClock();
+  restoreSavedBreakpointsForCurrentRom();
   ModuleRef._emulator_start();
   pulseOnKey(80, 1000);
   syncControls();
@@ -527,9 +803,10 @@ async function handleRomSelection(event) {
   if (!file || !state.ready) return;
 
   const bytes = await readFile(file);
-  if (!loadRomBytes(bytes, file.name)) return;
+  const romId = fingerprintRom(bytes);
+  if (!loadRomBytes(bytes, file.name, romId)) return;
 
-  const saved = saveRomToStorage(bytes, file.name);
+  const saved = saveRomToStorage(bytes, file.name, romId);
   setStatus(saved
     ? `ROM loaded: ${file.name}. Saved locally; emulation running.`
     : `ROM loaded: ${file.name}. Emulation running; local save failed.`);
@@ -544,6 +821,7 @@ function restoreSavedRom() {
   const loaded = loadRomBytes(
     savedRom.bytes,
     savedRom.name,
+    savedRom.id,
     `Saved ROM restored: ${savedRom.name}. Emulation running.`
   );
 
@@ -736,6 +1014,86 @@ function handleKeyboard(event, pressed) {
   setKeyState(binding, pressed);
 }
 
+function commitFocusedDebuggerEdit() {
+  if (!debuggerEditable()) return;
+  const activeElement = document.activeElement;
+  if (!(activeElement instanceof HTMLInputElement)) return;
+
+  if (activeElement === pcEditor) {
+    applyProgramCounter();
+    return;
+  }
+
+  if (activeElement.dataset.stackIndex != null) {
+    applyStackValue(activeElement);
+    return;
+  }
+
+  if (activeElement.dataset.registerIndex != null) applyRegisterNibble(activeElement);
+}
+
+function applyProgramCounter() {
+  if (!debuggerEditable()) return;
+  const nextPc = parseHex(pcEditor.value, 4);
+  if (nextPc == null) {
+    setStatus("Enter a valid 4-digit PC value");
+    updateDebugger();
+    return;
+  }
+
+  ModuleRef._emulator_set_program_counter(nextPc);
+  updateProgramCounter();
+  updateDebugger();
+  setStatus(`PC set to ${hex(nextPc, 4)}`);
+  logSnapshot(`Program counter set to ${hex(nextPc, 4)}`);
+}
+
+function toggleBreakpointAtInput() {
+  if (!debuggerEditable()) return;
+  const address = parseHex(breakpointAddressInput.value, 4);
+  if (address == null) {
+    setStatus("Enter a valid 4-digit breakpoint address");
+    updateDebugger();
+    return;
+  }
+
+  const enabled = ModuleRef._emulator_breakpoint_at(address) === 0;
+  ModuleRef._emulator_set_breakpoint(address, enabled ? 1 : 0);
+  persistCurrentBreakpoints();
+  updateDebugger();
+  setStatus(`Breakpoint ${enabled ? "enabled" : "disabled"} at ${hex(address, 4)}`);
+  logSnapshot(`Breakpoint ${enabled ? "enabled" : "disabled"} at ${hex(address, 4)}`);
+}
+
+function applyStackValue(input) {
+  if (!debuggerEditable()) return;
+  const index = Number.parseInt(input.dataset.stackIndex ?? "", 10);
+  const value = parseHex(input.value, 4);
+  if (!Number.isInteger(index) || value == null) {
+    updateDebugger();
+    return;
+  }
+
+  ModuleRef._emulator_set_stack_value(index, value);
+  updateDebugger();
+  setStatus(`Stack #${index} set to ${hex(value, 4)}`);
+}
+
+function applyRegisterNibble(input) {
+  if (!debuggerEditable()) return;
+  const index = Number.parseInt(input.dataset.registerIndex ?? "", 10);
+  const value = parseHex(input.value, 1);
+  if (!Number.isInteger(index) || value == null) {
+    updateDebugger();
+    return;
+  }
+
+  ModuleRef._emulator_set_register_nibble(index, value);
+  updateProgramCounter();
+  updateDebugger();
+  setStatus(`Register nibble ${hex(index, 3)} set to ${hex(value, 1)}`);
+}
+
 function installEventHandlers() {
   romInput.addEventListener("change", (event) => {
     handleRomSelection(event).catch(() => setStatus("ROM load failed"));
@@ -751,12 +1109,58 @@ function installEventHandlers() {
     updateThrottleLabel();
   });
 
+  applyPcButton.addEventListener("click", applyProgramCounter);
+  pcEditor.addEventListener("blur", applyProgramCounter);
+  pcEditor.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    applyProgramCounter();
+  });
+
+  setBreakpointButton.addEventListener("click", toggleBreakpointAtInput);
+  breakpointAddressInput.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    toggleBreakpointAtInput();
+  });
+
+  clearBreakpointsButton.addEventListener("click", () => {
+    if (!debuggerEditable()) return;
+    ModuleRef._emulator_clear_breakpoints();
+    persistCurrentBreakpoints();
+    updateDebugger();
+    setStatus("All breakpoints cleared");
+    logSnapshot("All breakpoints cleared");
+  });
+
+  stackInputs.forEach((input) => {
+    input.addEventListener("blur", () => applyStackValue(input));
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      applyStackValue(input);
+      input.blur();
+    });
+  });
+
+  registerInputs.forEach((input) => {
+    input.addEventListener("blur", () => applyRegisterNibble(input));
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      applyRegisterNibble(input);
+      input.blur();
+    });
+  });
+
   runToggle.addEventListener("click", () => {
+    commitFocusedDebuggerEdit();
     setRunning(!state.running);
   });
 
   stepButton.addEventListener("click", () => {
     if (!state.ready || !state.romLoaded) return;
+    commitFocusedDebuggerEdit();
     state.running = false;
     resetThrottleClock();
     ModuleRef._emulator_step_instruction();
@@ -821,6 +1225,7 @@ function installEventHandlers() {
   });
   stepOverButton.addEventListener("click", () => {
     if (!state.ready || !state.romLoaded) return;
+    commitFocusedDebuggerEdit();
     ModuleRef._emulator_step_over();
     state.running = true;
     syncControls();
@@ -831,6 +1236,7 @@ function installEventHandlers() {
   toggleBreakpointButton.addEventListener("click", () => {
     if (!state.ready || !state.romLoaded) return;
     ModuleRef._emulator_toggle_breakpoint_pc();
+    persistCurrentBreakpoints();
     updateDebugger();
     setStatus(`Breakpoint at PC ${ModuleRef._emulator_breakpoint_at_pc() ? "enabled" : "disabled"}`);
     logSnapshot("Breakpoint toggled at PC");
@@ -867,6 +1273,8 @@ function bootModule() {
 
 validateKeyLayout();
 createKeypad();
+buildStackEditor();
+buildRegisterEditor();
 installEventHandlers();
 updateThrottleLabel();
 drawScreen();
