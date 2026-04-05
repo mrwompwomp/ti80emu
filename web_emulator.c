@@ -252,6 +252,21 @@ int emulator_lcd_z(void) {
 }
 
 EMU_EXPORT
+int emulator_lcd_contrast(void) {
+	return LCD.contrast;
+}
+
+EMU_EXPORT
+int emulator_lcd_test(void) {
+	return LCD.test;
+}
+
+EMU_EXPORT
+int emulator_lcd_opa2(void) {
+	return LCD.opa2;
+}
+
+EMU_EXPORT
 unsigned emulator_reset_count(void) {
 	return resetCount();
 }

@@ -282,6 +282,59 @@ function reg8At(index) {
   return low | (reg4At(highIndex) << 4);
 }
 
+function mixChannel(from, to, ratio) {
+  return Math.round(from + ((to - from) * ratio));
+}
+
+function clampByte(value) {
+  return Math.max(0, Math.min(255, Math.round(value)));
+}
+
+function shadeColor(level) {
+  const ratio = clampByte(level) / 255;
+
+  return [
+    mixChannel(35, 239, ratio),
+    mixChannel(49, 230, ratio),
+    mixChannel(31, 206, ratio)
+  ];
+}
+
+function lcdPalette() {
+  if (!state.ready || !state.romLoaded) {
+    const blank = shadeColor(0xaa);
+    return { light: blank, dark: blank };
+  }
+
+  const contrast = ModuleRef._emulator_lcd_contrast() - (4 * ModuleRef._emulator_lcd_opa2());
+  const testMode = ModuleRef._emulator_lcd_test();
+  let low = 0xbd - (3 * contrast);
+  let high = 0x13f - (contrast < 0x10 ? 0x40 : (contrast << 2));
+
+  // Match the original GTK renderer's LCD test mode handling.
+  if (testMode === 4 || testMode === 6) {
+    low = 0xff;
+    high = 0xff;
+  }
+  if (testMode === 5 || testMode === 7) {
+    low = 0x00;
+    high = 0x00;
+  }
+  if (!ModuleRef._emulator_lcd_not_stb() || !ModuleRef._emulator_lcd_on()) {
+    low = 0xaa;
+    high = 0xaa;
+  }
+
+  return {
+    dark: shadeColor(low),
+    light: shadeColor(high)
+  };
+}
+
+function rgbString(color) {
+  return `rgb(${color[0]} ${color[1]} ${color[2]})`;
+}
+
 function normalizeHex(value, width) {
   return value.replace(/[^0-9a-f]/gi, "").toUpperCase().slice(0, width);
 }
@@ -533,8 +586,10 @@ function updateProgramCounter() {
 }
 
 function drawScreen() {
+  const palette = lcdPalette();
+
   if (!state.ready || !state.romLoaded) {
-    ctx.fillStyle = "#d8e0b7";
+    ctx.fillStyle = rgbString(palette.light);
     ctx.fillRect(0, 0, screen.width, screen.height);
     return;
   }
@@ -545,9 +600,10 @@ function drawScreen() {
   for (let i = 0; i < framebuffer.length; i += 1) {
     const on = framebuffer[i] === 1;
     const pixelIndex = i * 4;
-    imagePixels[pixelIndex + 0] = on ? 35 : 216;
-    imagePixels[pixelIndex + 1] = on ? 49 : 224;
-    imagePixels[pixelIndex + 2] = on ? 31 : 183;
+    const color = on ? palette.dark : palette.light;
+    imagePixels[pixelIndex + 0] = color[0];
+    imagePixels[pixelIndex + 1] = color[1];
+    imagePixels[pixelIndex + 2] = color[2];
     imagePixels[pixelIndex + 3] = 255;
   }
 

@@ -311,9 +311,8 @@ button:disabled {
   aspect-ratio: 4 / 3;
   padding: 16px 20px;
   border-radius: 0;
-  background: #efe6ce;
+  background: #d4cab9;
   image-rendering: pixelated;
-  filter: brightness(0.9);
   box-shadow:
     inset 3px -2px 7px black,
     0 3px 8px rgba(31, 28, 22, 0.22),
