@@ -31,6 +31,13 @@
           <input id="state-input" type="file" accept=".bin,.sav,.state,application/octet-stream">
         </label>
         <button id="save-state" class="ghost-button" type="button">Download State</button>
+        <label class="throttle-control" for="throttle-slider">
+          <span>Emulation Throttle</span>
+          <div class="throttle-input">
+            <input id="throttle-slider" type="range" min="25" max="200" step="5" value="100">
+            <output id="throttle-value" for="throttle-slider">100%</output>
+          </div>
+        </label>
         <div class="meta-actions">
           <button id="run-toggle" type="button">Run</button>
           <button id="step-button" type="button">Step</button>

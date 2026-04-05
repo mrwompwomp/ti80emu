@@ -2,6 +2,7 @@ const WIDTH = 64;
 const HEIGHT = 48;
 const SCALE = 6;
 const ROM_STORAGE_KEY = "ti80-rom";
+const EMULATION_FRAME_MS = 1000 / 60;
 
 const KEY_LAYOUT = [
   { label: "Y=", secondary: "STATPLOT", row: 3, col: 6, kind: "function", gridRow: 1, gridColumn: "1 / span 3" },
@@ -135,6 +136,8 @@ const resetButton = document.getElementById("reset-button");
 const hardResetButton = document.getElementById("hard-reset-button");
 const powerCycleButton = document.getElementById("power-cycle-button");
 const saveStateButton = document.getElementById("save-state");
+const throttleSlider = document.getElementById("throttle-slider");
+const throttleValue = document.getElementById("throttle-value");
 const keypad = document.getElementById("keypad");
 const statusPill = document.getElementById("status-pill");
 const runtimeStatus = document.getElementById("runtime-status");
@@ -182,6 +185,9 @@ const state = {
 let ModuleRef = null;
 let animationFrame = 0;
 let onPulseTimer = 0;
+let throttlePercent = Number(throttleSlider?.value ?? 100);
+let emulationBudgetMs = 0;
+let lastAnimationTimestamp = 0;
 
 function hex(value, width = 4) {
   return value.toString(16).toUpperCase().padStart(width, "0");
@@ -189,6 +195,15 @@ function hex(value, width = 4) {
 
 function setStatus(text) {
   statusPill.textContent = text;
+}
+
+function resetThrottleClock() {
+  emulationBudgetMs = 0;
+  lastAnimationTimestamp = 0;
+}
+
+function updateThrottleLabel() {
+  throttleValue.textContent = `${throttlePercent}%`;
 }
 
 function pulseOnKey(durationMs = 80, delayMs = 0) {
@@ -346,14 +361,29 @@ function drawScreen() {
   ctx.drawImage(offscreen, 0, 0, screen.width, screen.height);
 }
 
-function animationLoop() {
+function animationLoop(timestamp) {
+  if (!lastAnimationTimestamp) lastAnimationTimestamp = timestamp;
+  const elapsedMs = Math.min(timestamp - lastAnimationTimestamp, 250);
+  lastAnimationTimestamp = timestamp;
+
   if (state.running && state.ready && state.romLoaded) {
-    ModuleRef._emulator_run_frame();
-    state.running = ModuleRef._emulator_is_running() !== 0;
-    state.frameCounter += 1;
+    emulationBudgetMs += elapsedMs * (throttlePercent / 100);
+
+    while (state.running && emulationBudgetMs >= EMULATION_FRAME_MS) {
+      ModuleRef._emulator_run_frame();
+      state.running = ModuleRef._emulator_is_running() !== 0;
+      state.frameCounter += 1;
+      emulationBudgetMs -= EMULATION_FRAME_MS;
+    }
+
     updateProgramCounter();
     syncControls();
-    if (!state.running) logSnapshot("Emulation stopped");
+    if (!state.running) {
+      resetThrottleClock();
+      logSnapshot("Emulation stopped");
+    }
+  } else {
+    resetThrottleClock();
   }
 
   drawScreen();
@@ -372,6 +402,7 @@ function setRunning(nextRunning) {
   if (!state.ready || !state.romLoaded) return;
 
   state.running = nextRunning;
+  resetThrottleClock();
   if (nextRunning) {
     ModuleRef._emulator_start();
     setStatus("Emulation running");
@@ -479,6 +510,7 @@ function loadRomBytes(bytes, label, statusText) {
   state.running = true;
   state.frameCounter = 0;
   state.lastBlankLogFrame = -120;
+  resetThrottleClock();
   ModuleRef._emulator_start();
   pulseOnKey(80, 1000);
   syncControls();
@@ -537,6 +569,7 @@ async function handleStateSelection(event) {
   state.running = false;
   state.frameCounter = 0;
   state.lastBlankLogFrame = -120;
+  resetThrottleClock();
   syncControls();
   updateProgramCounter();
   updateDebugger();
@@ -712,6 +745,12 @@ function installEventHandlers() {
     handleStateSelection(event).catch(() => setStatus("State load failed"));
   });
 
+  throttleSlider.addEventListener("input", () => {
+    throttlePercent = Number(throttleSlider.value);
+    resetThrottleClock();
+    updateThrottleLabel();
+  });
+
   runToggle.addEventListener("click", () => {
     setRunning(!state.running);
   });
@@ -719,6 +758,7 @@ function installEventHandlers() {
   stepButton.addEventListener("click", () => {
     if (!state.ready || !state.romLoaded) return;
     state.running = false;
+    resetThrottleClock();
     ModuleRef._emulator_step_instruction();
     updateProgramCounter();
     updateDebugger();
@@ -733,6 +773,7 @@ function installEventHandlers() {
     state.running = false;
     state.frameCounter = 0;
     state.lastBlankLogFrame = -120;
+    resetThrottleClock();
     ModuleRef._emulator_reset();
     updateProgramCounter();
     updateDebugger();
@@ -747,6 +788,7 @@ function installEventHandlers() {
     state.running = false;
     state.frameCounter = 0;
     state.lastBlankLogFrame = -120;
+    resetThrottleClock();
     ModuleRef._emulator_hard_reset();
     updateProgramCounter();
     updateDebugger();
@@ -760,6 +802,7 @@ function installEventHandlers() {
     if (!state.ready || !state.romLoaded) return;
     state.frameCounter = 0;
     state.lastBlankLogFrame = -120;
+    resetThrottleClock();
     ModuleRef._emulator_power_cycle();
     state.running = ModuleRef._emulator_is_running() !== 0;
     updateProgramCounter();
@@ -807,6 +850,7 @@ function bootModule() {
   state.ready = true;
   state.frameCounter = 0;
   state.lastBlankLogFrame = -120;
+  resetThrottleClock();
   state.framebufferPtr = ModuleRef._emulator_framebuffer_ptr();
   state.stateSize = ModuleRef._emulator_state_size();
   state.registersPtr = ModuleRef._emulator_registers_ptr();
@@ -824,6 +868,7 @@ function bootModule() {
 validateKeyLayout();
 createKeypad();
 installEventHandlers();
+updateThrottleLabel();
 drawScreen();
 
 window.addEventListener("ti80-module-ready", bootModule, { once: true });
