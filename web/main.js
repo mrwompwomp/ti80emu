@@ -193,6 +193,7 @@ const state = {
 let ModuleRef = null;
 let animationFrame = 0;
 let onPulseTimer = 0;
+let powerCycleOnTimer = 0;
 let throttlePercent = Number(throttleSlider?.value ?? 100);
 let emulationBudgetMs = 0;
 let lastAnimationTimestamp = 0;
@@ -216,6 +217,12 @@ function updateThrottleLabel() {
   throttleValue.textContent = `${throttlePercent}%`;
 }
 
+function clearPowerCycleOnTimer() {
+  if (!powerCycleOnTimer) return;
+  window.clearTimeout(powerCycleOnTimer);
+  powerCycleOnTimer = 0;
+}
+
 function pulseOnKey(durationMs = 80, delayMs = 0) {
   if (!state.ready || !state.romLoaded) return;
 
@@ -231,6 +238,35 @@ function pulseOnKey(durationMs = 80, delayMs = 0) {
       logSnapshot("Automatic ON release");
     }, durationMs);
   }, delayMs);
+}
+
+function queuePowerCycleOnPulse(previousResetCount, attemptsRemaining = 80) {
+  clearPowerCycleOnTimer();
+
+  const pollForReset = () => {
+    if (!state.ready || !state.romLoaded) {
+      powerCycleOnTimer = 0;
+      return;
+    }
+
+    const resetCount = ModuleRef._emulator_reset_count();
+    const resetReason = emulatorString(ModuleRef._emulator_reset_reason_ptr());
+    if (resetCount > previousResetCount && resetReason === "Power cycle") {
+      powerCycleOnTimer = 0;
+      pulseOnKey(80, 150);
+      return;
+    }
+
+    if (attemptsRemaining <= 0) {
+      powerCycleOnTimer = 0;
+      return;
+    }
+
+    attemptsRemaining -= 1;
+    powerCycleOnTimer = window.setTimeout(pollForReset, 50);
+  };
+
+  powerCycleOnTimer = window.setTimeout(pollForReset, 50);
 }
 
 function emulatorString(ptr) {
@@ -944,6 +980,7 @@ function setKeyState(binding, pressed) {
   if (!state.ready || !state.romLoaded) return;
 
   if (binding.on) {
+    clearPowerCycleOnTimer();
     ModuleRef._emulator_set_on_key(pressed ? 1 : 0);
     if (pressed && !state.running) {
       ModuleRef._emulator_start();
@@ -1280,16 +1317,18 @@ function installEventHandlers() {
 
   powerCycleButton.addEventListener("click", () => {
     if (!state.ready || !state.romLoaded) return;
+    const previousResetCount = ModuleRef._emulator_reset_count();
     state.frameCounter = 0;
     state.lastBlankLogFrame = -120;
     resetThrottleClock();
     ModuleRef._emulator_power_cycle();
+    queuePowerCycleOnPulse(previousResetCount);
     state.running = ModuleRef._emulator_is_running() !== 0;
     updateProgramCounter();
     updateDebugger();
     drawScreen();
     syncControls();
-    setStatus("Power cycle applied");
+    setStatus("Power cycle applied; ON pulse queued");
     logSnapshot("Power cycle");
   });
 

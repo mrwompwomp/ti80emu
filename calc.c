@@ -11,10 +11,12 @@ static uint16_t overBreakpoint = 0xFFFF;
 static int variableTimer = 0;
 static int fixedTimer = 0;
 static long frameTime = 0;
+static int powerCycleDelayFrames = 0;
 static unsigned totalResetCount = 0;
 static char lastResetReason[64] = "Startup";
 
 static const long timing[8] = {5040, 2100, 1575, 1050, 350, 252, 180, 105};
+static const int powerCycleResetFrames = 35;
 
 static void rememberResetReason(const char *reason) {
 	if(reason == NULL || *reason == '\0') reason = "Reset";
@@ -42,6 +44,7 @@ void emulatorResetTiming(void) {
 	variableTimer = 0;
 	fixedTimer = 0;
 	frameTime = 0;
+	powerCycleDelayFrames = 0;
 	overBreakpoint = 0xFFFF;
 }
 
@@ -76,7 +79,8 @@ void reload(void) {
 }
 
 void powerCycle(void) {
-	resetForReason("Power cycle");
+	key[7][5] = 1;
+	powerCycleDelayFrames = powerCycleResetFrames;
 	start();
 }
 
@@ -178,6 +182,11 @@ int emulatorRunFrame(void) {
 	int executedCycles = 0;
 
 	if(stopped) return 0;
+	if(powerCycleDelayFrames > 0) {
+		powerCycleDelayFrames--;
+		if(powerCycleDelayFrames == 0) resetForReason("Power cycle");
+		return 0;
+	}
 
 	do {
 		int cycles = step();
