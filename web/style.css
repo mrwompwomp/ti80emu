@@ -171,6 +171,7 @@ input {
 .meta-actions button,
 .debug-actions button,
 .debug-field-row button,
+.disassembly-actions button,
 .debug-toolbar-button,
 .breakpoint-item button {
   border: 0;
@@ -239,6 +240,7 @@ input {
 .meta-actions button:hover,
 .debug-actions button:hover,
 .debug-field-row button:hover,
+.disassembly-actions button:hover,
 .debug-toolbar-button:hover,
 .breakpoint-item button:hover,
 .key:hover {
@@ -599,6 +601,7 @@ button.key.nav[data-key-id='8'], button.key.nav[data-key-id='13'] {
 
 .debug-actions button:active,
 .debug-field-row button:active,
+.disassembly-actions button:active,
 .debug-toolbar-button:active,
 .breakpoint-item button:active {
   transform: translateY(1px) scale(0.985);
@@ -613,6 +616,41 @@ button.key.nav[data-key-id='8'], button.key.nav[data-key-id='13'] {
 .debug-columns {
   display: grid;
   gap: 10px;
+}
+
+.disassembly-panel {
+  margin-bottom: 10px;
+  padding: 9px 10px;
+  border-radius: 12px;
+  background: rgba(241, 236, 226, 0.9);
+}
+
+.disassembly-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.disassembly-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.disassembly-actions code {
+  min-width: 3rem;
+  color: var(--muted);
+}
+
+.disassembly-actions button {
+  min-height: 30px;
+  border: 0;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #efe6d4 0%, #c7b99c 100%);
+  color: var(--ink);
+  box-shadow: 0 8px 16px rgba(86, 78, 63, 0.12);
 }
 
 .debug-status-block {
@@ -702,11 +740,156 @@ button.key.nav[data-key-id='8'], button.key.nav[data-key-id='13'] {
 
 .debug-editor-grid,
 .register-editor,
-.breakpoint-list {
+.breakpoint-list,
+.disassembly-view {
   display: grid;
   gap: 8px;
   max-height: 360px;
   overflow: auto;
+}
+
+.disassembly-view {
+  gap: 4px;
+}
+
+.disassembly-label-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 0 6px;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.72rem;
+}
+
+.disassembly-label {
+  color: #244785;
+  font-weight: 700;
+}
+
+.disassembly-xrefs {
+  color: var(--muted);
+}
+
+.disassembly-line {
+  display: grid;
+  grid-template-columns: 32px 48px 92px minmax(180px, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 4px 6px;
+  border-radius: 8px;
+  font-family: "IBM Plex Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.76rem;
+  cursor: pointer;
+}
+
+.disassembly-line.is-current {
+  background: rgba(39, 99, 93, 0.12);
+}
+
+.disassembly-line.is-selected {
+  outline: 1px solid rgba(36, 71, 133, 0.28);
+  background: rgba(36, 71, 133, 0.08);
+}
+
+.disassembly-line:not(.is-current):not(.is-selected):hover {
+  background: rgba(31, 36, 29, 0.05);
+}
+
+.disassembly-gutter {
+  display: grid;
+  grid-template-columns: 10px 10px;
+  gap: 6px;
+  align-items: center;
+  justify-content: start;
+}
+
+.disassembly-current-marker {
+  color: var(--accent-deep);
+  font-weight: 700;
+}
+
+.disassembly-breakpoint {
+  width: 10px;
+  height: 10px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: rgba(31, 36, 29, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(31, 36, 29, 0.12);
+  cursor: pointer;
+}
+
+.disassembly-breakpoint.is-set {
+  background: #b54235;
+  box-shadow: 0 0 0 1px rgba(125, 33, 24, 0.2);
+}
+
+.disassembly-address,
+.disassembly-words {
+  color: var(--muted);
+}
+
+.disassembly-asm {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  min-width: 0;
+}
+
+.disassembly-token {
+  white-space: pre;
+}
+
+.disassembly-mnemonic {
+  font-weight: 700;
+}
+
+.disassembly-operands {
+  color: var(--ink);
+  word-break: break-word;
+}
+
+.disassembly-separator,
+.disassembly-space {
+  color: var(--muted);
+}
+
+.disassembly-keyword,
+.disassembly-control {
+  color: #244785;
+  font-weight: 700;
+}
+
+.disassembly-target {
+  color: #2f7150;
+  font-weight: 700;
+}
+
+.disassembly-line.kind-load .disassembly-mnemonic {
+  color: #2f7150;
+}
+
+.disassembly-line.kind-control .disassembly-mnemonic,
+.disassembly-line.kind-micro .disassembly-mnemonic {
+  color: #244785;
+}
+
+.disassembly-line.kind-arithmetic .disassembly-mnemonic,
+.disassembly-line.kind-compare .disassembly-mnemonic {
+  color: #9a5c1d;
+}
+
+.disassembly-line.kind-logic .disassembly-mnemonic,
+.disassembly-line.kind-bit .disassembly-mnemonic,
+.disassembly-line.kind-exchange .disassembly-mnemonic {
+  color: #6f355e;
+}
+
+.disassembly-address,
+.disassembly-words,
+.disassembly-asm,
+.disassembly-operands {
+  min-width: 0;
 }
 
 .debug-editor-item {
@@ -806,6 +989,16 @@ button.key.nav[data-key-id='8'], button.key.nav[data-key-id='13'] {
   .debug-columns {
     grid-template-columns: 1fr;
   }
+
+  .disassembly-line {
+    grid-template-columns: 32px 48px 92px minmax(0, 1fr);
+  }
+
+  .disassembly-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
 }
 
 @media (max-width: 640px) {
@@ -871,5 +1064,23 @@ button.key.nav[data-key-id='8'], button.key.nav[data-key-id='13'] {
 
   .breakpoint-list {
     grid-template-columns: 1fr;
+  }
+
+  .disassembly-line {
+    grid-template-columns: 32px 48px minmax(0, 1fr);
+  }
+
+  .disassembly-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .disassembly-words {
+    grid-column: 2 / -1;
+  }
+
+  .disassembly-asm {
+    grid-column: 3;
+    flex-wrap: wrap;
   }
 }

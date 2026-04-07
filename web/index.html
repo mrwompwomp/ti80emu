@@ -99,6 +99,22 @@
             </div>
           </div>
 
+          <div class="disassembly-panel">
+            <span class="debug-label">Disassembly</span>
+            <div class="disassembly-toolbar">
+              <label class="toggle">
+                <input id="disassembly-follow-pc" type="checkbox" checked>
+                <span>Follow PC</span>
+              </label>
+              <div class="disassembly-actions">
+                <code id="disassembly-selected-address">----</code>
+                <button id="disassembly-set-pc-button" type="button">Set PC</button>
+                <button id="disassembly-run-here-button" type="button">Run Here</button>
+              </div>
+            </div>
+            <div id="disassembly-view" class="disassembly-view"></div>
+          </div>
+
           <div class="debug-toolbar">
             <label class="debug-field">
               <span class="debug-label">PC</span>

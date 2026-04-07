@@ -167,6 +167,11 @@ const clearBreakpointsButton = document.getElementById("clear-breakpoints-button
 const breakpointList = document.getElementById("breakpoint-list");
 const stackView = document.getElementById("stack-view");
 const registerView = document.getElementById("register-view");
+const disassemblyView = document.getElementById("disassembly-view");
+const disassemblyFollowPcToggle = document.getElementById("disassembly-follow-pc");
+const disassemblySelectedAddress = document.getElementById("disassembly-selected-address");
+const disassemblySetPcButton = document.getElementById("disassembly-set-pc-button");
+const disassemblyRunHereButton = document.getElementById("disassembly-run-here-button");
 const emulatorLayout = document.querySelector(".emulator-layout");
 const infoPanel = document.querySelector(".info-panel");
 
@@ -197,7 +202,11 @@ const state = {
   lastBlankLogFrame: -120,
   frameCounter: 0,
   debuggerVisible: false,
-  debuggerBuilt: false
+  debuggerBuilt: false,
+  disassemblyFocusPc: null,
+  disassemblyFollowPc: true,
+  runToAddress: null,
+  runToAddressHadBreakpoint: false
 };
 
 let ModuleRef = null;
@@ -212,6 +221,7 @@ let throttlePercent = Number(throttleSlider?.value ?? 100);
 let emulationBudgetMs = 0;
 let lastAnimationTimestamp = 0;
 let lastBreakpointListKey = "";
+let lastDisassemblyKey = "";
 let currentRomId = "";
 
 function hex(value, width = 4) {
@@ -512,6 +522,625 @@ function reg8At(index) {
   const low = reg4At(index);
   const highIndex = (index & 0x1f0) | ((index + 1) & 0x0f);
   return low | (reg4At(highIndex) << 4);
+}
+
+function debugByteAt(address) {
+  return ModuleRef._emulator_debug_byte(address & 0xffff);
+}
+
+function debugWordAt(pc) {
+  const byteAddress = (pc << 1) & 0xffff;
+  return ((debugByteAt(byteAddress) << 8) | debugByteAt(byteAddress + 1)) & 0xffff;
+}
+
+function currentIValue() {
+  return (((reg4At(0x102) & 0x01) << 8) | reg8At(0x100)) & 0x1ff;
+}
+
+function currentDPValue() {
+  return (reg8At(0x11c) | (reg8At(0x11e) << 8)) & 0xffff;
+}
+
+function add4Address(base, offset = 0) {
+  return (((base & 0x1f0) | ((base + offset) & 0x0f))) & 0x1ff;
+}
+
+function formatRegAddress(address) {
+  return `(${hex(address, 3)})`;
+}
+
+function formatImmediate(op) {
+  return op & 0x0100 ? hex(op & 0x0f, 1) : hex(op & 0x00ff, 2);
+}
+
+function branchDescriptor(op, targetWord) {
+  const mode = op & 0x0600;
+  if (!mode) return null;
+
+  return {
+    clause: mode === 0x0200 ? "" : (mode === 0x0400 ? "IF NO CARRY:" : "IF CARRY:"),
+    control: (targetWord & 0x8000) ? "CALL" : "JUMP",
+    target: hex(targetWord & 0x7fff, 4),
+    type: (targetWord & 0x8000) ? "call" : "jump"
+  };
+}
+
+function classifyInstruction(mnemonic) {
+  if (mnemonic === "BREAK" || mnemonic === "RET" || mnemonic === "JUMP" || mnemonic === "CALL" || mnemonic === "NOP") return "control";
+  if (mnemonic.startsWith("LOAD") || mnemonic === "READU" || mnemonic === "READD" || mnemonic === "WRITEU" || mnemonic === "WRITED" || mnemonic === "REP") return "load";
+  if (mnemonic.startsWith("ADD") || mnemonic.startsWith("SUB") || mnemonic.startsWith("DADD") || mnemonic.startsWith("DSUB")) return "arithmetic";
+  if (mnemonic === "IF") return "compare";
+  if (mnemonic.startsWith("XOR") || mnemonic.startsWith("OR") || mnemonic.startsWith("NOT")) return "logic";
+  if (mnemonic === "TOGGLE" || mnemonic === "CLEAR" || mnemonic === "SET") return "bit";
+  if (mnemonic.startsWith("XCHG")) return "exchange";
+  if (mnemonic === "MICRO" || mnemonic === "NOP?") return "micro";
+  return "default";
+}
+
+function compareOperator(op) {
+  switch (op & 0x0e00) {
+    case 0x0400:
+      return "=";
+    case 0x0600:
+      return "≠";
+    case 0x0c00:
+      return "<";
+    case 0x0e00:
+      return "≥";
+    default:
+      return "=";
+  }
+}
+
+function instructionTokens({ mnemonic = "", operands = "", separator = "", clause = "", control = "", target = "" }) {
+  const tokens = [];
+  const push = (role, text) => {
+    if (!text) return;
+    tokens.push({ role, text });
+  };
+
+  push("mnemonic", mnemonic);
+  if (operands) {
+    if (tokens.length) push("space", " ");
+    push("operands", operands);
+  }
+  if (separator) push("separator", `${separator} `);
+  if (clause) {
+    if (!separator && tokens.length) push("space", " ");
+    push("keyword", clause);
+  }
+  if (control) {
+    if (tokens.length && tokens[tokens.length - 1]?.role !== "separator") push("space", " ");
+    push("control", control);
+  }
+  if (target) {
+    if (tokens.length) push("space", " ");
+    push("target", target);
+  }
+  return tokens;
+}
+
+function branchInstructionTokens(op, targetWord, { prefixMnemonic = "", prefixOperands = "", separator = "" } = {}) {
+  const branch = branchDescriptor(op, targetWord);
+  return instructionTokens({
+    mnemonic: prefixMnemonic,
+    operands: prefixOperands,
+    separator,
+    clause: branch?.clause ?? "",
+    control: branch?.control ?? "",
+    target: branch?.target ?? ""
+  });
+}
+
+function bitAddress(address, bit) {
+  return `${formatRegAddress(address)}.${bit}`;
+}
+
+function decodeInstruction(pc) {
+  const op = debugWordAt(pc);
+  const nextWord = debugWordAt((pc + 1) & 0xffff);
+  const i = currentIValue();
+  const dp = currentDPValue();
+  const size = op & 0x0100 ? ".N" : ".B";
+  const yx = ((op & 0x000f) << 4) | ((op >> 4) & 0x000f);
+  const jyx = add4Address((((i & 0x0100) ^ 0x0100) | yx) & 0x1ff);
+  const wyxBase = (((op >> 1) & 0x0100) | yx) & 0x1ff;
+  const wyx = (op & 0x020f) === 0x020f ? i : add4Address(wyxBase);
+  const wyxsNoI = add4Address(wyxBase);
+  const wyxs = (op & 0x020f) === 0x020f ? i : wyxsNoI;
+  const ef = add4Address((0x0100 | ((op >> 7) & 0x0020) | ((op >> 4) & 0x001f)) & 0x1ff);
+  const bitIndex = String((op >> 8 & 0x0001) | (op >> 9 & 0x0002));
+  let mnemonic = "";
+  let asmTokens = [];
+  let length = 1;
+  let targetAddress = null;
+  let targetType = "";
+
+  if (op === 0xb000) {
+    mnemonic = "BREAK";
+    asmTokens = instructionTokens({ mnemonic });
+  } else if (op < 0x0200) {
+    const parts = [];
+
+    switch (op & 0x0007) {
+      case 0x0004:
+        parts.push(`READU${size} ${formatRegAddress(i)},[DP+]`);
+        break;
+      case 0x0005:
+        parts.push(`READD${size} ${formatRegAddress(i)},[DP-]`);
+        break;
+      case 0x0006:
+        parts.push(`WRITEU${size} [DP+],${formatRegAddress(i)}`);
+        break;
+      case 0x0007:
+        parts.push(`WRITED${size} [DP-],${formatRegAddress(i)}`);
+        break;
+      default:
+        break;
+    }
+
+    if ((op & 0x0018) === 0x0018) parts.push((op & 0x0004) && dp < 0x4000 ? "SHR A,2" : "SHR A");
+    if (op & 0x0020) parts.push("SCANKEYS");
+    if (op & 0x0040) parts.push("RET");
+    if (op & 0x0080) parts.push("JUMP (104)");
+    if (!parts.length) {
+      mnemonic = "NOP?";
+      asmTokens = instructionTokens({ mnemonic });
+    }
+    else {
+      mnemonic = "MICRO";
+      asmTokens = instructionTokens({ mnemonic, operands: parts.join(" | ") });
+    }
+  } else if (op < 0x0400) {
+    mnemonic = `LOAD${size}`;
+    asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(jyx)},${formatRegAddress(i)}` });
+  } else if (op < 0x0600) {
+    mnemonic = `LOAD${size}`;
+    asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(i)},${formatRegAddress(jyx)}` });
+  } else if (op < 0x0800) {
+    mnemonic = `XCHG${size}`;
+    asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(i)},${formatRegAddress(jyx)}` });
+  } else if (op < 0x0c00) {
+    mnemonic = "LOAD";
+    if (op & 0x0200) {
+      const branch = branchDescriptor(op, nextWord);
+      targetAddress = nextWord & 0x7fff;
+      targetType = branch.type;
+      length = 2;
+      asmTokens = branchInstructionTokens(op, nextWord, {
+        prefixMnemonic: mnemonic,
+        prefixOperands: `I,${hex(op & 0x01ff, 3)}`,
+        separator: ";"
+      });
+    } else {
+      asmTokens = instructionTokens({ mnemonic, operands: `I,${hex(op & 0x01ff, 3)}` });
+    }
+  } else if (op < 0x0e00) {
+    mnemonic = "LOAD";
+    asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(i)},${formatImmediate(op)}` });
+  } else if (op < 0x1000) {
+    if ((op & 0x0f00) === 0x0f00) {
+      mnemonic = "REP";
+      asmTokens = instructionTokens({ mnemonic, operands: hex((op & 0x000f) + 1, 1) });
+    } else {
+      mnemonic = "LOAD";
+      asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(ef)},${hex(op & 0x000f, 1)}` });
+    }
+  } else if (op < 0x1400) {
+    mnemonic = `LOAD${size}`;
+    asmTokens = instructionTokens({ mnemonic, operands: `A,${formatRegAddress(wyxsNoI)}` });
+  } else if (op < 0x1800) {
+    mnemonic = `XCHG${size}`;
+    asmTokens = instructionTokens({ mnemonic, operands: `A,${formatRegAddress(wyxsNoI)}` });
+  } else if (op < 0x1c00) {
+    mnemonic = `LOAD${size}`;
+    asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(wyxsNoI)},A` });
+  } else if (op < 0x1e00) {
+    mnemonic = "LOAD";
+    asmTokens = instructionTokens({ mnemonic, operands: `A,${formatImmediate(op)}` });
+  } else if (op < 0x2000) {
+    mnemonic = "LOAD";
+    asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(ef)},${hex(op & 0x000f, 1)}` });
+  } else if (op < 0x2800) {
+    mnemonic = "TOGGLE";
+    asmTokens = instructionTokens({ mnemonic, operands: bitAddress(wyx, bitIndex) });
+  } else if (op < 0x3000) {
+    mnemonic = "CLEAR";
+    asmTokens = instructionTokens({ mnemonic, operands: bitAddress(wyx, bitIndex) });
+  } else if (op < 0x3800) {
+    mnemonic = "SET";
+    asmTokens = instructionTokens({ mnemonic, operands: bitAddress(wyx, bitIndex) });
+  } else if (op < 0x3c00) {
+    mnemonic = `NOT${size}`;
+    asmTokens = instructionTokens({ mnemonic, operands: formatRegAddress(wyxs) });
+  } else if (op < 0x3e00) {
+    mnemonic = `XOR${size}`;
+    asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(i)},${formatRegAddress(jyx)}` });
+  } else if (op < 0x4000) {
+    mnemonic = `OR${size}`;
+    asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(i)},${formatRegAddress(jyx)}` });
+  } else if (op < 0x6000) {
+    mnemonic = "IF";
+    const branch = branchDescriptor(op, nextWord);
+    asmTokens = instructionTokens({
+      mnemonic,
+      operands: `${formatRegAddress(ef)}${compareOperator(op)}${hex(op & 0x000f, 1)}${branch ? ":" : ""}`,
+      control: branch?.control ?? "",
+      target: branch?.target ?? ""
+    });
+    if (branch) {
+      targetAddress = nextWord & 0x7fff;
+      targetType = branch.type;
+      length = 2;
+    }
+  } else if (op < 0x7000) {
+    mnemonic = "IF";
+    const branch = branchDescriptor(op, nextWord);
+    asmTokens = instructionTokens({
+      mnemonic,
+      operands: `${formatRegAddress(i)}${compareOperator(op)}${formatImmediate(op)}${branch ? ":" : ""}`,
+      control: branch?.control ?? "",
+      target: branch?.target ?? ""
+    });
+    if (branch) {
+      targetAddress = nextWord & 0x7fff;
+      targetType = branch.type;
+      length = 2;
+    }
+  } else if (op < 0x8000) {
+    mnemonic = "IF";
+    const branch = branchDescriptor(op, nextWord);
+    asmTokens = instructionTokens({
+      mnemonic,
+      operands: `A${compareOperator(op)}${formatImmediate(op)}${branch ? ":" : ""}`,
+      control: branch?.control ?? "",
+      target: branch?.target ?? ""
+    });
+    if (branch) {
+      targetAddress = nextWord & 0x7fff;
+      targetType = branch.type;
+      length = 2;
+    }
+  } else if (op < 0xa000) {
+    mnemonic = `${op & 0x0800 ? (op & 0x1000 ? "DSUB" : "DADD") : (op & 0x1000 ? "SUB" : "ADD")}${size}`;
+    const branch = branchDescriptor(op, nextWord);
+    if (branch) {
+      targetAddress = nextWord & 0x7fff;
+      targetType = branch.type;
+      length = 2;
+      asmTokens = branchInstructionTokens(op, nextWord, {
+        prefixMnemonic: mnemonic,
+        prefixOperands: `${formatRegAddress(i)},${formatRegAddress(jyx)}`,
+        separator: ";"
+      });
+    } else {
+      asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(i)},${formatRegAddress(jyx)}` });
+    }
+  } else if (op < 0xb000) {
+    mnemonic = "IF";
+    const control = (nextWord & 0x8000) ? "CALL" : "JUMP";
+    const target = hex(nextWord & 0x7fff, 4);
+    const expected = (op >> 11) & 0x0001 ? "SET" : "CLEAR";
+    asmTokens = instructionTokens({
+      mnemonic,
+      operands: `${expected} ${bitAddress(wyx, bitIndex)}:`,
+      control,
+      target
+    });
+    targetAddress = nextWord & 0x7fff;
+    targetType = (nextWord & 0x8000) ? "call" : "jump";
+    length = 2;
+  } else if (op < 0xc000) {
+    mnemonic = "IF";
+    const branch = branchDescriptor(op, nextWord);
+    asmTokens = instructionTokens({
+      mnemonic,
+      operands: `${formatRegAddress(i)}${compareOperator(op)}${formatRegAddress(jyx)}${branch ? ":" : ""}`,
+      control: branch?.control ?? "",
+      target: branch?.target ?? ""
+    });
+    if (branch) {
+      targetAddress = nextWord & 0x7fff;
+      targetType = branch.type;
+      length = 2;
+    }
+  } else if (op < 0xe000) {
+    const branch = branchDescriptor(op, nextWord);
+    const arithmeticMnemonic = op & 0x0800 ? "DADD" : "ADD";
+    if ((op & 0x00ff) === 0x00 && branch) {
+      mnemonic = branch.control;
+      asmTokens = instructionTokens({ mnemonic, operands: branch.target });
+      targetAddress = nextWord & 0x7fff;
+      targetType = branch.type;
+      length = 2;
+    } else {
+      mnemonic = arithmeticMnemonic;
+      if (branch) {
+        targetAddress = nextWord & 0x7fff;
+        targetType = branch.type;
+        length = 2;
+        asmTokens = branchInstructionTokens(op, nextWord, {
+          prefixMnemonic: mnemonic,
+          prefixOperands: `${formatRegAddress(ef)},${hex(op & 0x000f, 1)}`,
+          separator: ";"
+        });
+      } else {
+        asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(ef)},${hex(op & 0x000f, 1)}` });
+      }
+    }
+  } else if (op < 0xf000) {
+    mnemonic = op & 0x0800 ? "DADD" : "ADD";
+    const branch = branchDescriptor(op, nextWord);
+    if (branch) {
+      targetAddress = nextWord & 0x7fff;
+      targetType = branch.type;
+      length = 2;
+      asmTokens = branchInstructionTokens(op, nextWord, {
+        prefixMnemonic: mnemonic,
+        prefixOperands: `${formatRegAddress(i)},${formatImmediate(op)}`,
+        separator: ";"
+      });
+    } else {
+      asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(i)},${formatImmediate(op)}` });
+    }
+  } else {
+    mnemonic = op & 0x0800 ? "DADD" : "ADD";
+    const branch = branchDescriptor(op, nextWord);
+    if (branch) {
+      targetAddress = nextWord & 0x7fff;
+      targetType = branch.type;
+      length = 2;
+      asmTokens = branchInstructionTokens(op, nextWord, {
+        prefixMnemonic: mnemonic,
+        prefixOperands: `A,${formatImmediate(op)}`,
+        separator: ";"
+      });
+    } else {
+      asmTokens = instructionTokens({ mnemonic, operands: `A,${formatImmediate(op)}` });
+    }
+  }
+
+  return {
+    pc,
+    op,
+    nextWord,
+    length,
+    mnemonic,
+    asmTokens,
+    words: length === 2 ? `${hex(op, 4)} ${hex(nextWord, 4)}` : hex(op, 4),
+    kind: classifyInstruction(mnemonic),
+    targetAddress,
+    targetType
+  };
+}
+
+function toggleBreakpointAtAddress(address) {
+  if (!state.ready || !state.romLoaded) return;
+  const enabled = ModuleRef._emulator_breakpoint_at(address) === 0;
+  ModuleRef._emulator_set_breakpoint(address, enabled ? 1 : 0);
+  persistCurrentBreakpoints();
+  lastBreakpointListKey = "";
+  lastDisassemblyKey = "";
+  updateDebugger();
+  setStatus(`Breakpoint ${enabled ? "enabled" : "disabled"} at ${hex(address, 4)}`);
+  logSnapshot(`Breakpoint ${enabled ? "enabled" : "disabled"} at ${hex(address, 4)}`);
+}
+
+function decodeLengthAt(pc) {
+  return decodeInstruction(pc).length;
+}
+
+function collectPredecessorAddresses(anchorPc, count) {
+  const addresses = [];
+  let cursor = anchorPc & 0xffff;
+
+  for (let steps = 0; steps < count; steps += 1) {
+    let predecessor = null;
+
+    for (const delta of [1, 2]) {
+      const candidate = (cursor - delta) & 0xffff;
+      if (decodeLengthAt(candidate) === delta) {
+        predecessor = candidate;
+        break;
+      }
+    }
+
+    if (predecessor == null) break;
+    addresses.unshift(predecessor);
+    cursor = predecessor;
+  }
+
+  return addresses;
+}
+
+function collectDisassemblyWindow(currentPc) {
+  const anchorPc = (!state.disassemblyFollowPc && state.disassemblyFocusPc != null)
+    ? state.disassemblyFocusPc
+    : currentPc;
+  const addresses = collectPredecessorAddresses(anchorPc, 8);
+  addresses.push(anchorPc);
+
+  let cursor = anchorPc;
+  while (addresses.length < 22) {
+    const next = (cursor + decodeLengthAt(cursor)) & 0xffff;
+    if (addresses.includes(next)) break;
+    addresses.push(next);
+    cursor = next;
+  }
+
+  return addresses;
+}
+
+function buildCrossReferenceMap(instructions) {
+  const map = new Map();
+
+  instructions.forEach((instruction) => {
+    if (instruction.targetAddress == null) return;
+    const key = instruction.targetAddress & 0xffff;
+    if (!map.has(key)) map.set(key, []);
+    map.get(key).push({
+      from: instruction.pc,
+      type: instruction.targetType
+    });
+  });
+
+  return map;
+}
+
+function labelForAddress(address, xrefs) {
+  return xrefs.some((xref) => xref.type === "call")
+    ? `sub_${hex(address, 4)}`
+    : `loc_${hex(address, 4)}`;
+}
+
+function setDisassemblySelectedAddress(address) {
+  state.disassemblyFocusPc = address & 0xffff;
+  state.disassemblyFollowPc = false;
+  disassemblyFollowPcToggle.checked = false;
+  lastDisassemblyKey = "";
+}
+
+function setProgramCounterToAddress(address) {
+  if (!debuggerEditable()) return;
+  ModuleRef._emulator_set_program_counter(address & 0xffff);
+  state.disassemblyFocusPc = address & 0xffff;
+  lastDisassemblyKey = "";
+  updateProgramCounter();
+  updateDebugger();
+  setStatus(`PC set to ${hex(address, 4)}`);
+  logSnapshot(`Program counter set to ${hex(address, 4)}`);
+}
+
+function clearRunToAddressState() {
+  if (state.runToAddress == null) return;
+  if (!state.runToAddressHadBreakpoint && ModuleRef._emulator_breakpoint_at(state.runToAddress)) {
+    ModuleRef._emulator_set_breakpoint(state.runToAddress, 0);
+  }
+  state.runToAddress = null;
+  state.runToAddressHadBreakpoint = false;
+}
+
+function finalizeRunToAddressStop() {
+  if (state.runToAddress == null) return;
+
+  const target = state.runToAddress;
+  const reached = (ModuleRef._emulator_program_counter() & 0xffff) === target;
+  clearRunToAddressState();
+  if (reached) setStatus(`Reached ${hex(target, 4)}`);
+  else setStatus(`Run to ${hex(target, 4)} interrupted`);
+  lastBreakpointListKey = "";
+  lastDisassemblyKey = "";
+}
+
+function runToAddress(address) {
+  if (!state.ready || !state.romLoaded) return;
+  const target = address & 0xffff;
+  if ((ModuleRef._emulator_program_counter() & 0xffff) === target && !state.running) {
+    setStatus(`Already at ${hex(target, 4)}`);
+    return;
+  }
+  const alreadySet = ModuleRef._emulator_breakpoint_at(target) !== 0;
+  state.runToAddress = target;
+  state.runToAddressHadBreakpoint = alreadySet;
+  if (!alreadySet) ModuleRef._emulator_set_breakpoint(target, 1);
+  state.running = true;
+  resetThrottleClock();
+  ModuleRef._emulator_start();
+  lastBreakpointListKey = "";
+  lastDisassemblyKey = "";
+  syncControls();
+  setStatus(`Running to ${hex(target, 4)}`);
+  logSnapshot(`Run to ${hex(target, 4)} requested`);
+}
+
+function renderDisassembly(pc, breakpoints) {
+  const i = currentIValue();
+  const addresses = collectDisassemblyWindow(pc);
+  const instructions = addresses.map((address) => decodeInstruction(address));
+  const xrefMap = buildCrossReferenceMap(instructions);
+  const tempRunTarget = state.runToAddress != null && !state.runToAddressHadBreakpoint ? [state.runToAddress] : [];
+  const key = `${hex(pc, 4)}:${hex(i, 3)}:${hex(state.disassemblyFocusPc ?? 0xffff, 4)}:${state.disassemblyFollowPc ? 1 : 0}:${breakpoints.join(",")}:${tempRunTarget.join(",")}`;
+  if (key === lastDisassemblyKey) return;
+  lastDisassemblyKey = key;
+  disassemblyView.textContent = "";
+  const breakpointSet = new Set([...breakpoints, ...tempRunTarget]);
+
+  instructions.forEach((instruction) => {
+    const linePc = instruction.pc;
+    const xrefs = xrefMap.get(linePc) ?? [];
+
+    if (xrefs.length) {
+      const labelRow = document.createElement("div");
+      labelRow.className = "disassembly-label-row";
+
+      const label = document.createElement("span");
+      label.className = "disassembly-label";
+      label.textContent = `${labelForAddress(linePc, xrefs)}:`;
+
+      const xrefText = document.createElement("span");
+      xrefText.className = "disassembly-xrefs";
+      xrefText.textContent = `xrefs ${xrefs.map((xref) => `${hex(xref.from, 4)} ${xref.type}`).join(", ")}`;
+
+      labelRow.append(label, xrefText);
+      disassemblyView.appendChild(labelRow);
+    }
+
+    const row = document.createElement("div");
+    row.className = "disassembly-line";
+    row.classList.add(`kind-${instruction.kind}`);
+    if (linePc === pc) row.classList.add("is-current");
+    if (linePc === state.disassemblyFocusPc) row.classList.add("is-selected");
+    row.addEventListener("click", () => {
+      setDisassemblySelectedAddress(linePc);
+      pcEditor.value = hex(linePc, 4);
+      breakpointAddressInput.value = hex(linePc, 4);
+      lastDisassemblyKey = "";
+      updateDebugger();
+    });
+    row.addEventListener("dblclick", () => {
+      setProgramCounterToAddress(linePc);
+    });
+
+    const gutter = document.createElement("div");
+    gutter.className = "disassembly-gutter";
+
+    const currentMarker = document.createElement("span");
+    currentMarker.className = "disassembly-current-marker";
+    currentMarker.textContent = linePc === pc ? ">" : "";
+    gutter.appendChild(currentMarker);
+
+    const breakpointButton = document.createElement("button");
+    breakpointButton.type = "button";
+    breakpointButton.className = "disassembly-breakpoint";
+    if (breakpointSet.has(linePc)) breakpointButton.classList.add("is-set");
+    breakpointButton.setAttribute("aria-label", `${breakpointSet.has(linePc) ? "Clear" : "Set"} breakpoint at ${hex(linePc, 4)}`);
+    breakpointButton.addEventListener("click", (event) => {
+      event.stopPropagation();
+      toggleBreakpointAtAddress(linePc);
+    });
+    gutter.appendChild(breakpointButton);
+
+    const address = document.createElement("span");
+    address.className = "disassembly-address";
+    address.textContent = hex(linePc, 4);
+
+    const words = document.createElement("span");
+    words.className = "disassembly-words";
+    words.textContent = instruction.words;
+
+    const asm = document.createElement("span");
+    asm.className = "disassembly-asm";
+
+    instruction.asmTokens.forEach((token) => {
+      const span = document.createElement("span");
+      span.className = `disassembly-token disassembly-${token.role}`;
+      span.textContent = token.text;
+      asm.appendChild(span);
+    });
+
+    row.append(gutter, address, words, asm);
+    disassemblyView.appendChild(row);
+  });
 }
 
 function mixChannel(from, to, ratio) {
@@ -819,6 +1448,12 @@ function updateDebugger() {
     renderStackEditor(true);
     renderRegisterEditor(true);
     renderBreakpointList(true, []);
+    lastDisassemblyKey = "";
+    disassemblyView.textContent = "";
+    disassemblySelectedAddress.textContent = "----";
+    disassemblySetPcButton.disabled = true;
+    disassemblyRunHereButton.disabled = true;
+    disassemblyFollowPcToggle.checked = state.disassemblyFollowPc;
     breakOnDebugToggle.checked = false;
     return;
   }
@@ -850,6 +1485,11 @@ function updateDebugger() {
   renderStackEditor(!editable);
   renderRegisterEditor(!editable);
   renderBreakpointList(!editable, breakpoints);
+  renderDisassembly(pc, breakpoints);
+  disassemblySelectedAddress.textContent = hex(state.disassemblyFocusPc ?? pc, 4);
+  disassemblySetPcButton.disabled = !editable || state.disassemblyFocusPc == null;
+  disassemblyRunHereButton.disabled = state.disassemblyFocusPc == null;
+  disassemblyFollowPcToggle.checked = state.disassemblyFollowPc;
   breakOnDebugToggle.checked = ModuleRef._emulator_break_on_debug() !== 0;
 }
 
@@ -872,6 +1512,9 @@ function syncControls() {
   stepButton.disabled = !canInteract;
   stepOverButton.disabled = !canInteract;
   toggleBreakpointButton.disabled = !canInteract;
+  disassemblyFollowPcToggle.disabled = !canInteract;
+  disassemblySetPcButton.disabled = !debuggerEditable() || state.disassemblyFocusPc == null;
+  disassemblyRunHereButton.disabled = !canInteract || state.disassemblyFocusPc == null;
 }
 
 function syncDebuggerVisibility() {
@@ -936,6 +1579,7 @@ function animationLoop(timestamp) {
     updateProgramCounter();
     syncControls();
     if (!state.running) {
+      finalizeRunToAddressStop();
       resetThrottleClock();
       logSnapshot("Emulation stopped");
     }
@@ -966,6 +1610,7 @@ function setRunning(nextRunning) {
     logSnapshot("Run requested");
   } else {
     ModuleRef._emulator_pause();
+    clearRunToAddressState();
     setStatus("Emulation paused");
     logSnapshot("Pause requested");
   }
@@ -1146,6 +1791,9 @@ function loadRomBytes(bytes, label, romId, statusText) {
   state.romLoaded = true;
   state.stateLoaded = false;
   state.running = true;
+  state.disassemblyFocusPc = null;
+  state.disassemblyFollowPc = true;
+  clearRunToAddressState();
   state.frameCounter = 0;
   state.lastBlankLogFrame = -120;
   resetThrottleClock();
@@ -1208,6 +1856,9 @@ async function handleStateSelection(event) {
 
   state.stateLoaded = true;
   state.running = false;
+  state.disassemblyFocusPc = null;
+  state.disassemblyFollowPc = true;
+  clearRunToAddressState();
   state.frameCounter = 0;
   state.lastBlankLogFrame = -120;
   resetThrottleClock();
@@ -1476,12 +2127,7 @@ function toggleBreakpointAtInput() {
     return;
   }
 
-  const enabled = ModuleRef._emulator_breakpoint_at(address) === 0;
-  ModuleRef._emulator_set_breakpoint(address, enabled ? 1 : 0);
-  persistCurrentBreakpoints();
-  updateDebugger();
-  setStatus(`Breakpoint ${enabled ? "enabled" : "disabled"} at ${hex(address, 4)}`);
-  logSnapshot(`Breakpoint ${enabled ? "enabled" : "disabled"} at ${hex(address, 4)}`);
+  toggleBreakpointAtAddress(address);
 }
 
 function applyStackValue(input) {
@@ -1530,6 +2176,21 @@ function installEventHandlers() {
 
   debuggerToggleButton.addEventListener("click", () => {
     setDebuggerVisible(!state.debuggerVisible);
+  });
+
+  disassemblyFollowPcToggle.addEventListener("change", () => {
+    state.disassemblyFollowPc = disassemblyFollowPcToggle.checked;
+    if (state.disassemblyFollowPc) state.disassemblyFocusPc = null;
+    lastDisassemblyKey = "";
+    updateDebugger();
+  });
+  disassemblySetPcButton.addEventListener("click", () => {
+    if (state.disassemblyFocusPc == null) return;
+    setProgramCounterToAddress(state.disassemblyFocusPc);
+  });
+  disassemblyRunHereButton.addEventListener("click", () => {
+    if (state.disassemblyFocusPc == null) return;
+    runToAddress(state.disassemblyFocusPc);
   });
 
   applyRegAButton.addEventListener("click", applyRegisterA);
@@ -1596,6 +2257,7 @@ function installEventHandlers() {
     if (!state.ready || !state.romLoaded) return;
     commitFocusedDebuggerEdit();
     state.running = false;
+    clearRunToAddressState();
     resetThrottleClock();
     ModuleRef._emulator_step_instruction();
     updateProgramCounter();
@@ -1609,6 +2271,7 @@ function installEventHandlers() {
   resetButton.addEventListener("click", () => {
     if (!state.ready || !state.romLoaded) return;
     state.running = false;
+    clearRunToAddressState();
     state.frameCounter = 0;
     state.lastBlankLogFrame = -120;
     resetThrottleClock();
@@ -1624,6 +2287,7 @@ function installEventHandlers() {
   hardResetButton.addEventListener("click", () => {
     if (!state.ready || !state.romLoaded) return;
     state.running = false;
+    clearRunToAddressState();
     state.frameCounter = 0;
     state.lastBlankLogFrame = -120;
     resetThrottleClock();
@@ -1639,6 +2303,7 @@ function installEventHandlers() {
   powerCycleButton.addEventListener("click", () => {
     if (!state.ready || !state.romLoaded) return;
     const previousResetCount = ModuleRef._emulator_reset_count();
+    clearRunToAddressState();
     state.frameCounter = 0;
     state.lastBlankLogFrame = -120;
     resetThrottleClock();
@@ -1662,6 +2327,7 @@ function installEventHandlers() {
   stepOverButton.addEventListener("click", () => {
     if (!state.ready || !state.romLoaded) return;
     commitFocusedDebuggerEdit();
+    clearRunToAddressState();
     ModuleRef._emulator_step_over();
     state.running = true;
     syncControls();
