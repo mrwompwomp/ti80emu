@@ -1171,11 +1171,6 @@ function setKeyState(binding, pressed) {
   if (binding.on) {
     clearPowerCycleOnTimer();
     ModuleRef._emulator_set_on_key(pressed ? 1 : 0);
-    if (pressed && !state.running) {
-      ModuleRef._emulator_start();
-      state.running = true;
-      syncControls();
-    }
     logSnapshot(pressed ? "ON key pressed" : "ON key released");
   } else {
     ModuleRef._emulator_set_key(binding.row, binding.col, pressed ? 1 : 0);
