@@ -104,7 +104,7 @@
               <span class="debug-label">PC</span>
               <div class="debug-field-row">
                 <input id="pc-editor" type="text" inputmode="text" autocomplete="off" spellcheck="false" value="0000">
-                <button id="apply-pc-button" type="button">Apply</button>
+                <button id="apply-pc-button" type="button">Save</button>
               </div>
             </label>
             <label class="debug-field">
@@ -120,15 +120,24 @@
           <div class="register-grid">
             <div>
               <span class="debug-label">A</span>
-              <code id="reg-a">00</code>
+              <div class="debug-field-row">
+                <input id="reg-a-editor" type="text" inputmode="text" autocomplete="off" spellcheck="false" value="00">
+                <button id="apply-reg-a-button" type="button">Save</button>
+              </div>
             </div>
             <div>
               <span class="debug-label">I</span>
-              <code id="reg-i">000</code>
+              <div class="debug-field-row">
+                <input id="reg-i-editor" type="text" inputmode="text" autocomplete="off" spellcheck="false" value="000">
+                <button id="apply-reg-i-button" type="button">Save</button>
+              </div>
             </div>
             <div>
               <span class="debug-label">SP</span>
-              <code id="reg-sp">0</code>
+              <div class="debug-field-row">
+                <input id="reg-sp-editor" type="text" inputmode="text" autocomplete="off" spellcheck="false" value="0">
+                <button id="apply-reg-sp-button" type="button">Save</button>
+              </div>
             </div>
             <div>
               <span class="debug-label">Breakpoint</span>

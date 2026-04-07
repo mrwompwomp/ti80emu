@@ -648,7 +648,7 @@ button.key.nav[data-key-id='8'], button.key.nav[data-key-id='13'] {
 .debug-field-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
+  gap: 4px;
 }
 
 .debug-field-row button,

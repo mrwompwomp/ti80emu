@@ -146,6 +146,11 @@ void emulator_set_register_nibble(uint16_t index, uint8_t value) {
 }
 
 EMU_EXPORT
+void emulator_set_register_byte(uint16_t index, uint8_t value) {
+	reg8w(index, value);
+}
+
+EMU_EXPORT
 uint16_t *emulator_stack_ptr(void) {
 	return stack;
 }

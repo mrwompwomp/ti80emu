@@ -153,9 +153,12 @@ const debugStatusText = document.getElementById("debug-status");
 const opcodePreview = document.getElementById("opcode-preview");
 const pcEditor = document.getElementById("pc-editor");
 const applyPcButton = document.getElementById("apply-pc-button");
-const regAText = document.getElementById("reg-a");
-const regIText = document.getElementById("reg-i");
-const regSPText = document.getElementById("reg-sp");
+const regAEditor = document.getElementById("reg-a-editor");
+const applyRegAButton = document.getElementById("apply-reg-a-button");
+const regIEditor = document.getElementById("reg-i-editor");
+const applyRegIButton = document.getElementById("apply-reg-i-button");
+const regSPEditor = document.getElementById("reg-sp-editor");
+const applyRegSPButton = document.getElementById("apply-reg-sp-button");
 const breakpointStatus = document.getElementById("breakpoint-status");
 const breakpointCountText = document.getElementById("breakpoint-count");
 const breakpointAddressInput = document.getElementById("breakpoint-address");
@@ -797,13 +800,19 @@ function updateDebugger() {
   if (!state.romLoaded) {
     debugStatusText.textContent = "Waiting for ROM";
     opcodePreview.textContent = "-- -- -- -- -- -- -- --";
-    regAText.textContent = "00";
-    regIText.textContent = "000";
-    regSPText.textContent = "0";
+    regAEditor.value = "00";
+    regIEditor.value = "000";
+    regSPEditor.value = "0";
     breakpointStatus.textContent = "Off";
     breakpointCountText.textContent = "0";
     pcEditor.value = "0000";
     breakpointAddressInput.value = "";
+    regAEditor.disabled = true;
+    applyRegAButton.disabled = true;
+    regIEditor.disabled = true;
+    applyRegIButton.disabled = true;
+    regSPEditor.disabled = true;
+    applyRegSPButton.disabled = true;
     applyPcButton.disabled = true;
     setBreakpointButton.disabled = true;
     clearBreakpointsButton.disabled = true;
@@ -823,13 +832,16 @@ function updateDebugger() {
 
   for (let i = 0; i < 8; i += 1) opcodeBytes.push(hex(ModuleRef._emulator_debug_byte((pc + i) & 0xffff), 2));
 
-  regAText.textContent = hex(reg8At(0x0ff), 2);
-  regIText.textContent = `${hex(reg4At(0x102), 1)}${hex(reg8At(0x100), 2)}`;
-  regSPText.textContent = hex(reg4At(0x118), 1);
+  syncInputValue(regAEditor, hex(reg8At(0x0ff), 2), !editable);
+  syncInputValue(regIEditor, `${hex(reg4At(0x102), 1)}${hex(reg8At(0x100), 2)}`, !editable);
+  syncInputValue(regSPEditor, hex(reg4At(0x118), 1), !editable);
   breakpointStatus.textContent = ModuleRef._emulator_breakpoint_at_pc() ? "On" : "Off";
   breakpointCountText.textContent = String(breakpoints.length);
   debugStatusText.textContent = statusText || (ModuleRef._emulator_error_stop() ? "Execution halted on error" : "No debug message");
   opcodePreview.textContent = opcodeBytes.join(" ");
+  applyRegAButton.disabled = !editable;
+  applyRegIButton.disabled = !editable;
+  applyRegSPButton.disabled = !editable;
   syncInputValue(pcEditor, hex(pc, 4), !editable);
   breakpointAddressInput.disabled = !editable;
   applyPcButton.disabled = !editable;
@@ -1367,6 +1379,21 @@ function commitFocusedDebuggerEdit() {
   const activeElement = document.activeElement;
   if (!(activeElement instanceof HTMLInputElement)) return;
 
+  if (activeElement === regAEditor) {
+    applyRegisterA();
+    return;
+  }
+
+  if (activeElement === regIEditor) {
+    applyRegisterI();
+    return;
+  }
+
+  if (activeElement === regSPEditor) {
+    applyRegisterSP();
+    return;
+  }
+
   if (activeElement === pcEditor) {
     applyProgramCounter();
     return;
@@ -1394,6 +1421,50 @@ function applyProgramCounter() {
   updateDebugger();
   setStatus(`PC set to ${hex(nextPc, 4)}`);
   logSnapshot(`Program counter set to ${hex(nextPc, 4)}`);
+}
+
+function applyRegisterA() {
+  if (!debuggerEditable()) return;
+  const value = parseHex(regAEditor.value, 2);
+  if (value == null) {
+    setStatus("Enter a valid 2-digit A value");
+    updateDebugger();
+    return;
+  }
+
+  ModuleRef._emulator_set_register_byte(0x0f0, value);
+  updateDebugger();
+  setStatus(`A set to ${hex(value, 2)}`);
+}
+
+function applyRegisterI() {
+  if (!debuggerEditable()) return;
+  const value = parseHex(regIEditor.value, 3);
+  if (value == null) {
+    setStatus("Enter a valid 3-digit I value");
+    updateDebugger();
+    return;
+  }
+
+  ModuleRef._emulator_set_register_nibble(0x100, value & 0x0f);
+  ModuleRef._emulator_set_register_nibble(0x101, (value >> 4) & 0x0f);
+  ModuleRef._emulator_set_register_nibble(0x102, (value >> 8) & 0x01);
+  updateDebugger();
+  setStatus(`I set to ${hex(value, 3)}`);
+}
+
+function applyRegisterSP() {
+  if (!debuggerEditable()) return;
+  const value = parseHex(regSPEditor.value, 1);
+  if (value == null) {
+    setStatus("Enter a valid 1-digit SP value");
+    updateDebugger();
+    return;
+  }
+
+  ModuleRef._emulator_set_register_nibble(0x118, value);
+  updateDebugger();
+  setStatus(`SP set to ${hex(value, 1)}`);
 }
 
 function toggleBreakpointAtInput() {
@@ -1459,6 +1530,30 @@ function installEventHandlers() {
 
   debuggerToggleButton.addEventListener("click", () => {
     setDebuggerVisible(!state.debuggerVisible);
+  });
+
+  applyRegAButton.addEventListener("click", applyRegisterA);
+  regAEditor.addEventListener("blur", applyRegisterA);
+  regAEditor.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    applyRegisterA();
+  });
+
+  applyRegIButton.addEventListener("click", applyRegisterI);
+  regIEditor.addEventListener("blur", applyRegisterI);
+  regIEditor.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    applyRegisterI();
+  });
+
+  applyRegSPButton.addEventListener("click", applyRegisterSP);
+  regSPEditor.addEventListener("blur", applyRegisterSP);
+  regSPEditor.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    applyRegisterSP();
   });
 
   applyPcButton.addEventListener("click", applyProgramCounter);
