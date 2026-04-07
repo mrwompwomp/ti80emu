@@ -592,17 +592,17 @@ function compareOperator(op) {
   }
 }
 
-function instructionTokens({ mnemonic = "", operands = "", separator = "", clause = "", control = "", target = "" }) {
+function instructionTokens({ mnemonic = "", operands = "", operandsTitle = "", separator = "", clause = "", control = "", target = "" }) {
   const tokens = [];
-  const push = (role, text) => {
+  const push = (role, text, title = "") => {
     if (!text) return;
-    tokens.push({ role, text });
+    tokens.push({ role, text, title });
   };
 
   push("mnemonic", mnemonic);
   if (operands) {
     if (tokens.length) push("space", " ");
-    push("operands", operands);
+    push("operands", operands, operandsTitle);
   }
   if (separator) push("separator", `${separator} `);
   if (clause) {
@@ -632,10 +632,6 @@ function branchInstructionTokens(op, targetWord, { prefixMnemonic = "", prefixOp
   });
 }
 
-function bitAddress(address, bit) {
-  return `${formatRegAddress(address)}.${bit}`;
-}
-
 function tokensForInstructionText(text) {
   const separatorIndex = text.indexOf(" ");
   if (separatorIndex === -1) return instructionTokens({ mnemonic: text });
@@ -653,6 +649,66 @@ function tokensForInstructionSequence(parts) {
   });
 }
 
+const disassemblyRegisterAliases = new Map([
+  ["(0FF)", "(REG_A)"],
+  ["(100)", "(REG_I)"],
+  ["(118)", "(REG_SP)"],
+  ["(11C)", "(REG_DP)"]
+]);
+
+function appendDisassemblyToken(container, token) {
+  if (token.role === "operands") {
+    const aliasPattern = /\((0FF|100|118|11C)\)/g;
+    let lastIndex = 0;
+    let match = aliasPattern.exec(token.text);
+
+    while (match) {
+      if (match.index > lastIndex) {
+        const plain = document.createElement("span");
+        plain.className = "disassembly-token disassembly-operands";
+        plain.textContent = token.text.slice(lastIndex, match.index);
+        if (token.title) plain.title = token.title;
+        container.appendChild(plain);
+      }
+
+      const original = match[0];
+      const alias = disassemblyRegisterAliases.get(original) ?? original;
+      const aliasSpan = document.createElement("span");
+      aliasSpan.className = "disassembly-token disassembly-operands disassembly-register-alias";
+      aliasSpan.textContent = alias;
+      aliasSpan.title = `Literal register address ${original}`;
+      container.appendChild(aliasSpan);
+
+      lastIndex = match.index + original.length;
+      match = aliasPattern.exec(token.text);
+    }
+
+    if (lastIndex === 0) {
+      const span = document.createElement("span");
+      span.className = `disassembly-token disassembly-${token.role}`;
+      span.textContent = token.text;
+      if (token.title) span.title = token.title;
+      container.appendChild(span);
+      return;
+    }
+
+    if (lastIndex < token.text.length) {
+      const trailing = document.createElement("span");
+      trailing.className = "disassembly-token disassembly-operands";
+      trailing.textContent = token.text.slice(lastIndex);
+      if (token.title) trailing.title = token.title;
+      container.appendChild(trailing);
+    }
+    return;
+  }
+
+  const span = document.createElement("span");
+  span.className = `disassembly-token disassembly-${token.role}`;
+  span.textContent = token.text;
+  if (token.title) span.title = token.title;
+  container.appendChild(span);
+}
+
 function decodeInstruction(pc) {
   const op = debugWordAt(pc);
   const nextWord = debugWordAt((pc + 1) & 0xffff);
@@ -665,8 +721,14 @@ function decodeInstruction(pc) {
   const wyx = (op & 0x020f) === 0x020f ? i : add4Address(wyxBase);
   const wyxsNoI = add4Address(wyxBase);
   const wyxs = (op & 0x020f) === 0x020f ? i : wyxsNoI;
+  const wyxUsesI = (op & 0x020f) === 0x020f;
   const ef = add4Address((0x0100 | ((op >> 7) & 0x0020) | ((op >> 4) & 0x001f)) & 0x1ff);
   const bitIndex = String((op >> 8 & 0x0001) | (op >> 9 & 0x0002));
+  const iOperand = "(I)";
+  const iPlusOperand = "(I+)";
+  const iTooltip = `I currently points to ${formatRegAddress(i)}`;
+  const wyxOperand = wyxUsesI ? iOperand : formatRegAddress(wyx);
+  const wyxsOperand = wyxUsesI ? iOperand : formatRegAddress(wyxs);
   let mnemonic = "";
   let asmTokens = [];
   let length = 1;
@@ -681,16 +743,16 @@ function decodeInstruction(pc) {
 
     switch (op & 0x0007) {
       case 0x0004:
-        parts.push(`READU${size} ${formatRegAddress(i)},[DP+]`);
+        parts.push(`READU${size} ${iOperand},[DP+]`);
         break;
       case 0x0005:
-        parts.push(`READD${size} ${formatRegAddress(i)},[DP-]`);
+        parts.push(`READD${size} ${iOperand},[DP-]`);
         break;
       case 0x0006:
-        parts.push(`WRITEU${size} [DP+],${formatRegAddress(i)}`);
+        parts.push(`WRITEU${size} [DP+],${iOperand}`);
         break;
       case 0x0007:
-        parts.push(`WRITED${size} [DP-],${formatRegAddress(i)}`);
+        parts.push(`WRITED${size} [DP-],${iOperand}`);
         break;
       default:
         break;
@@ -709,13 +771,13 @@ function decodeInstruction(pc) {
     }
   } else if (op < 0x0400) {
     mnemonic = `LOAD${size}`;
-    asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(jyx)},${formatRegAddress(i)}` });
+    asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(jyx)},${iOperand}`, operandsTitle: iTooltip });
   } else if (op < 0x0600) {
     mnemonic = `LOAD${size}`;
-    asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(i)},${formatRegAddress(jyx)}` });
+    asmTokens = instructionTokens({ mnemonic, operands: `${iOperand},${formatRegAddress(jyx)}`, operandsTitle: iTooltip });
   } else if (op < 0x0800) {
     mnemonic = `XCHG${size}`;
-    asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(i)},${formatRegAddress(jyx)}` });
+    asmTokens = instructionTokens({ mnemonic, operands: `${iOperand},${formatRegAddress(jyx)}`, operandsTitle: iTooltip });
   } else if (op < 0x0c00) {
     mnemonic = "LOAD";
     if (op & 0x0200) {
@@ -733,7 +795,7 @@ function decodeInstruction(pc) {
     }
   } else if (op < 0x0e00) {
     mnemonic = "LOAD";
-    asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(i)},${formatImmediate(op)}` });
+    asmTokens = instructionTokens({ mnemonic, operands: `${iPlusOperand},${formatImmediate(op)}`, operandsTitle: iTooltip });
   } else if (op < 0x1000) {
     if ((op & 0x0ff0) === 0x0f00) {
       mnemonic = "REP";
@@ -759,22 +821,22 @@ function decodeInstruction(pc) {
     asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(ef)},${hex(op & 0x000f, 1)}` });
   } else if (op < 0x2800) {
     mnemonic = "TOGGLE";
-    asmTokens = instructionTokens({ mnemonic, operands: bitAddress(wyx, bitIndex) });
+    asmTokens = instructionTokens({ mnemonic, operands: `${wyxOperand}.${bitIndex}`, operandsTitle: wyxUsesI ? iTooltip : "" });
   } else if (op < 0x3000) {
     mnemonic = "CLEAR";
-    asmTokens = instructionTokens({ mnemonic, operands: bitAddress(wyx, bitIndex) });
+    asmTokens = instructionTokens({ mnemonic, operands: `${wyxOperand}.${bitIndex}`, operandsTitle: wyxUsesI ? iTooltip : "" });
   } else if (op < 0x3800) {
     mnemonic = "SET";
-    asmTokens = instructionTokens({ mnemonic, operands: bitAddress(wyx, bitIndex) });
+    asmTokens = instructionTokens({ mnemonic, operands: `${wyxOperand}.${bitIndex}`, operandsTitle: wyxUsesI ? iTooltip : "" });
   } else if (op < 0x3c00) {
     mnemonic = `NOT${size}`;
-    asmTokens = instructionTokens({ mnemonic, operands: formatRegAddress(wyxs) });
+    asmTokens = instructionTokens({ mnemonic, operands: wyxsOperand, operandsTitle: wyxUsesI ? iTooltip : "" });
   } else if (op < 0x3e00) {
     mnemonic = `XOR${size}`;
-    asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(i)},${formatRegAddress(jyx)}` });
+    asmTokens = instructionTokens({ mnemonic, operands: `${iOperand},${formatRegAddress(jyx)}`, operandsTitle: iTooltip });
   } else if (op < 0x4000) {
     mnemonic = `OR${size}`;
-    asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(i)},${formatRegAddress(jyx)}` });
+    asmTokens = instructionTokens({ mnemonic, operands: `${iOperand},${formatRegAddress(jyx)}`, operandsTitle: iTooltip });
   } else if (op < 0x6000) {
     mnemonic = "IF";
     const branch = branchDescriptor(op, nextWord);
@@ -794,7 +856,8 @@ function decodeInstruction(pc) {
     const branch = branchDescriptor(op, nextWord);
     asmTokens = instructionTokens({
       mnemonic,
-      operands: `${formatRegAddress(i)}${compareOperator(op)}${formatImmediate(op)}${branch ? ":" : ""}`,
+      operands: `${iPlusOperand}${compareOperator(op)}${formatImmediate(op)}${branch ? ":" : ""}`,
+      operandsTitle: iTooltip,
       control: branch?.control ?? "",
       target: branch?.target ?? ""
     });
@@ -826,11 +889,14 @@ function decodeInstruction(pc) {
       length = 2;
       asmTokens = branchInstructionTokens(op, nextWord, {
         prefixMnemonic: mnemonic,
-        prefixOperands: `${formatRegAddress(i)},${formatRegAddress(jyx)}`,
+        prefixOperands: `${iOperand},${formatRegAddress(jyx)}`,
         separator: ";"
       });
+      asmTokens.forEach((token) => {
+        if (token.role === "operands") token.title = iTooltip;
+      });
     } else {
-      asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(i)},${formatRegAddress(jyx)}` });
+      asmTokens = instructionTokens({ mnemonic, operands: `${iOperand},${formatRegAddress(jyx)}`, operandsTitle: iTooltip });
     }
   } else if (op < 0xb000) {
     mnemonic = "IF";
@@ -839,7 +905,8 @@ function decodeInstruction(pc) {
     const expected = (op >> 11) & 0x0001 ? "SET" : "CLEAR";
     asmTokens = instructionTokens({
       mnemonic,
-      operands: `${expected} ${bitAddress(wyx, bitIndex)}:`,
+      operands: `${expected} ${wyxOperand}.${bitIndex}:`,
+      operandsTitle: wyxUsesI ? iTooltip : "",
       control,
       target
     });
@@ -851,7 +918,8 @@ function decodeInstruction(pc) {
     const branch = branchDescriptor(op, nextWord);
     asmTokens = instructionTokens({
       mnemonic,
-      operands: `${formatRegAddress(i)}${compareOperator(op)}${formatRegAddress(jyx)}${branch ? ":" : ""}`,
+      operands: `${iOperand}${compareOperator(op)}${formatRegAddress(jyx)}${branch ? ":" : ""}`,
+      operandsTitle: iTooltip,
       control: branch?.control ?? "",
       target: branch?.target ?? ""
     });
@@ -893,11 +961,14 @@ function decodeInstruction(pc) {
       length = 2;
       asmTokens = branchInstructionTokens(op, nextWord, {
         prefixMnemonic: mnemonic,
-        prefixOperands: `${formatRegAddress(i)},${formatImmediate(op)}`,
+        prefixOperands: `${iOperand},${formatImmediate(op)}`,
         separator: ";"
       });
+      asmTokens.forEach((token) => {
+        if (token.role === "operands") token.title = iTooltip;
+      });
     } else {
-      asmTokens = instructionTokens({ mnemonic, operands: `${formatRegAddress(i)},${formatImmediate(op)}` });
+      asmTokens = instructionTokens({ mnemonic, operands: `${iOperand},${formatImmediate(op)}`, operandsTitle: iTooltip });
     }
   } else {
     mnemonic = op & 0x0800 ? "DADD" : "ADD";
@@ -1147,12 +1218,7 @@ function renderDisassembly(pc, breakpoints) {
     const asm = document.createElement("span");
     asm.className = "disassembly-asm";
 
-    instruction.asmTokens.forEach((token) => {
-      const span = document.createElement("span");
-      span.className = `disassembly-token disassembly-${token.role}`;
-      span.textContent = token.text;
-      asm.appendChild(span);
-    });
+    instruction.asmTokens.forEach((token) => appendDisassemblyToken(asm, token));
 
     row.append(gutter, address, words, asm);
     disassemblyView.appendChild(row);

@@ -849,6 +849,11 @@ button.key.nav[data-key-id='8'], button.key.nav[data-key-id='13'] {
   word-break: break-word;
 }
 
+.disassembly-register-alias {
+  color: #b54235;
+  font-weight: 700;
+}
+
 .disassembly-separator,
 .disassembly-space {
   color: var(--muted);
